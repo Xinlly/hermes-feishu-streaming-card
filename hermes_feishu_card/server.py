@@ -27,7 +27,7 @@ MESSAGE_LOCKS_KEY = web.AppKey("message_locks", dict)
 FOOTER_FIELDS_KEY = web.AppKey("footer_fields", Any)
 CARD_TITLE_KEY = web.AppKey("card_title", str)
 UPDATE_MAX_ATTEMPTS = 3
-UPDATE_MIN_INTERVAL_SECONDS = 2.0
+UPDATE_MIN_INTERVAL_SECONDS = 0.5
 TERMINAL_EVENTS = {"message.completed", "message.failed"}
 DIAGNOSTICS_KEY = web.AppKey("diagnostics", dict)
 logger = logging.getLogger(__name__)
@@ -126,7 +126,9 @@ async def _events(request: web.Request) -> web.Response:
     message_locks: Dict[str, asyncio.Lock] = request.app[MESSAGE_LOCKS_KEY]
     lock = message_locks.setdefault(_session_key(event), asyncio.Lock())
     async with lock:
-        response = await _apply_event_locked(request, event)
+        response, post_lock_task = await _apply_event_locked(request, event)
+    if post_lock_task is not None:
+        await post_lock_task
     return response
 
 
@@ -142,7 +144,12 @@ def _session_key(event: SidecarEvent) -> str:
     return event.message_id
 
 
-async def _apply_event_locked(request: web.Request, event: SidecarEvent) -> web.Response:
+async def _apply_event_locked(request: web.Request, event: SidecarEvent) -> tuple[web.Response, Any]:
+    """Process event state inside the lock. Returns (response, post_lock_task).
+
+    post_lock_task is a coroutine that performs Feishu API calls outside the lock
+    to avoid blocking subsequent event processing.
+    """
     metrics: SidecarMetrics = request.app[METRICS_KEY]
     sessions: Dict[str, CardSession] = request.app[SESSIONS_KEY]
     feishu_message_ids: Dict[str, str] = request.app[FEISHU_MESSAGE_IDS_KEY]
@@ -153,7 +160,7 @@ async def _apply_event_locked(request: web.Request, event: SidecarEvent) -> web.
     if event.event == "message.started":
         if session is not None:
             metrics.events_ignored += 1
-            return web.json_response({"ok": True, "applied": False})
+            return web.json_response({"ok": True, "applied": False}), None
         session = CardSession(
             conversation_id=event.conversation_id,
             message_id=event.message_id,
@@ -169,7 +176,7 @@ async def _apply_event_locked(request: web.Request, event: SidecarEvent) -> web.
                 return web.json_response(
                     {"ok": False, "error": "bot route failed"},
                     status=502,
-                )
+                ), None
             message_id = await _send_card(
                 request,
                 event.chat_id,
@@ -182,18 +189,18 @@ async def _apply_event_locked(request: web.Request, event: SidecarEvent) -> web.
                 return web.json_response(
                     {"ok": False, "error": "feishu send failed"},
                     status=502,
-                )
+                ), None
             feishu_message_ids[_session_key(event)] = message_id
             message_bot_ids[_session_key(event)] = route.bot_id
         if applied:
             metrics.events_applied += 1
         else:
             metrics.events_ignored += 1
-        return web.json_response({"ok": True, "applied": applied})
+        return web.json_response({"ok": True, "applied": applied}), None
 
     if session is None:
         metrics.events_ignored += 1
-        return web.json_response({"ok": True, "applied": False})
+        return web.json_response({"ok": True, "applied": False}), None
 
     feishu_message_id = feishu_message_ids.get(_session_key(event))
     if _would_apply(session, event) and feishu_message_id is None:
@@ -201,7 +208,7 @@ async def _apply_event_locked(request: web.Request, event: SidecarEvent) -> web.
         return web.json_response(
             {"ok": False, "error": "feishu_message_id missing"},
             status=409,
-        )
+        ), None
 
     applied = session.apply(event)
     if event.event in TERMINAL_EVENTS:
@@ -213,41 +220,31 @@ async def _apply_event_locked(request: web.Request, event: SidecarEvent) -> web.
             "session_status": session.status,
             "answer_chars": len(session.answer_text),
         }
+    post_lock_task = None
     if applied and feishu_message_id is not None:
         should_update = _should_update_card(last_update_at, event)
         if should_update:
-            update_delay = _update_delay_seconds(last_update_at, event)
-            if update_delay > 0:
-                await asyncio.sleep(update_delay)
-        if should_update:
-            updated = await _update_card(
-                request,
-                feishu_message_id,
-                _render_session_card(request, session),
-                message_bot_ids.get(_session_key(event)),
-            )
-            if not updated and event.event not in TERMINAL_EVENTS:
-                metrics.events_rejected += 1
-                return web.json_response(
-                    {"ok": False, "error": "feishu update failed"},
-                    status=502,
-                )
-            if not updated and event.event in TERMINAL_EVENTS:
-                asyncio.create_task(
-                    _retry_terminal_update(
-                        request.app,
-                        feishu_message_id,
-                        _render_session_card(request, session),
-                        message_bot_ids.get(_session_key(event)),
-                    )
-                )
-        if should_update:
+            # 锁内立即标记，防止后续事件在API完成前重复触发更新
             last_update_at[_session_key(event)] = time.monotonic()
+            card = _render_session_card(request, session)
+            bot_id = message_bot_ids.get(_session_key(event))
+            is_terminal = event.event in TERMINAL_EVENTS
+
+            async def _do_update():
+                if is_terminal:
+                    delay = _update_delay_seconds(last_update_at, event)
+                    if delay > 0:
+                        await asyncio.sleep(delay)
+                updated = await _update_card_for_app(request.app, feishu_message_id, card, bot_id)
+                if not updated and is_terminal:
+                    await _retry_terminal_update(request.app, feishu_message_id, card, bot_id)
+
+            post_lock_task = _do_update()
     if applied:
         metrics.events_applied += 1
     else:
         metrics.events_ignored += 1
-    return web.json_response({"ok": True, "applied": applied})
+    return web.json_response({"ok": True, "applied": applied}), post_lock_task
 
 
 def _render_session_card(request: web.Request, session: CardSession) -> dict[str, Any]:

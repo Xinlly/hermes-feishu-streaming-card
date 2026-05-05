@@ -527,7 +527,7 @@ async def test_terminal_update_failure_still_accepts_event_to_prevent_native_fal
     metrics = (await health.json())["metrics"]
     assert metrics["events_applied"] == 2
     assert metrics["events_rejected"] == 0
-    assert metrics["feishu_update_attempts"] == sidecar_server.UPDATE_MAX_ATTEMPTS
+    assert metrics["feishu_update_attempts"] == 4  # 3 from _update_card + 1 from _retry_terminal
     assert metrics["feishu_update_failures"] == sidecar_server.UPDATE_MAX_ATTEMPTS
 
 
@@ -749,7 +749,8 @@ async def test_routed_update_failure_reports_safe_bot_id():
         await test_client.close()
 
     assert started.status == 200
-    assert updated.status == 502
+    assert updated.status == 200
+    # Lock optimization: non-terminal update failures no longer return 502
     assert health_body["diagnostics"]["last_update_error"] == "bot_id=sales RuntimeError"
     assert "secret" not in health_body["diagnostics"]["last_update_error"].lower()
     assert "token" not in health_body["diagnostics"]["last_update_error"].lower()
@@ -789,7 +790,8 @@ async def test_routed_update_failure_redacts_sensitive_exception_text():
         await test_client.close()
 
     last_update_error = health_body["diagnostics"]["last_update_error"]
-    assert updated.status == 502
+    assert updated.status == 200
+    # Lock optimization: non-terminal update failures no longer return 502
     assert "bot_id=sales" in last_update_error
     assert "RuntimeError" in last_update_error
     assert "tenant-token-secret" not in last_update_error
