@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import re
 
-THINK_TAG_RE = re.compile(r"</?think>", re.IGNORECASE)
+THINK_TAG_RE = re.compile(r"</?think>|</?thinking>", re.IGNORECASE)
 SENTENCE_END_RE = re.compile(r"[。！？!?\.]$")
-THINK_TAGS = ("<think>", "</think>")
+THINK_TAGS = ("<think>", "</think>", "<thinking>", "</thinking>")
 
 
 def normalize_stream_text(text: str) -> str:

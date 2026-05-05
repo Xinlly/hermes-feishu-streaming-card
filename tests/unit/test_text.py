@@ -64,3 +64,19 @@ def test_force_flushes_empty_buffer():
 
 def test_does_not_flush_tiny_fragment_too_early():
     assert not should_flush_text("半句话", elapsed_ms=100, max_wait_ms=800, max_chars=200)
+
+
+def test_normalize_removes_thinking_tags():
+    assert normalize_stream_text("<thinking>推理中</thinking>结果") == "推理中结果"
+    assert normalize_stream_text("<THINKING>推理</THINKING>") == "推理"
+
+
+def test_streaming_normalizer_handles_thinking_split_across_chunks():
+    normalizer = StreamingTextNormalizer()
+    assert normalizer.feed("hello<think") == "hello"
+    assert normalizer.feed("ing>world") == "world"
+
+
+def test_normalize_does_not_remove_plain_think_word():
+    assert normalize_stream_text("I think so") == "I think so"
+    assert normalize_stream_text("I am thinking") == "I am thinking"
