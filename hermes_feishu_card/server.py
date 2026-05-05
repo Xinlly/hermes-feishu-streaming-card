@@ -314,12 +314,16 @@ def _resolve_route(request: web.Request, event: SidecarEvent) -> RouteResult | N
     diagnostics = request.app[ROUTING_DIAGNOSTICS_KEY]
     app_diagnostics = request.app[DIAGNOSTICS_KEY]
 
+    # 记录当前 profile_id（多 profile 模式下需要注入到 route.bot_id）
+    current_profile_id: str | None = None
+
     # Multi-profile: select profile-specific factory
     if isinstance(feishu_client, dict):
         profile_id = event.data.get("profile_id", "default") if isinstance(event.data, dict) else "default"
-        factory = feishu_client.get(profile_id) or feishu_client.get("default")
+        current_profile_id = str(profile_id)
+        factory = feishu_client.get(current_profile_id) or feishu_client.get("default")
         if factory is None:
-            diagnostics["last_route_error"] = f"no factory for profile {profile_id}"
+            diagnostics["last_route_error"] = f"no factory for profile {current_profile_id}"
             return None
         feishu_client = factory
 
@@ -353,6 +357,9 @@ def _resolve_route(request: web.Request, event: SidecarEvent) -> RouteResult | N
     }
     diagnostics["last_route_error"] = ""
     app_diagnostics["last_route_error"] = ""
+    # 多 profile 模式：将 profile_id 注入 bot_id，以便 _client_for_bot 正确路由
+    if current_profile_id is not None:
+        route = RouteResult(f"{current_profile_id}:{route.bot_id}", route.reason)
     return route
 
 
