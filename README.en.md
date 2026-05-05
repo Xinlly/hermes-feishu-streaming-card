@@ -1,4 +1,4 @@
-# Hermes Feishu Streaming Card Plugin V3.2.1
+# Hermes Feishu Streaming Card Plugin V3.3.0
 
 [中文](README.md) | [English](README.en.md)
 
@@ -609,7 +609,7 @@ python3 -m pytest tests/integration/test_feishu_client_http.py -q
 
 Current V3.2.1 acceptance status:
 
-- Full automated test suite: **398 passed**
+- Full automated test suite: **424 passed**
 - GitHub Actions: Python 3.9 / 3.12 matrix passed
 - Installer/restore tests cover backups, manifest, duplicate install, modified-file refusal, uninstall, and restore idempotency
 - Real Hermes Gateway E2E verified card creation, streaming updates, tool counts, completion state, and footer metadata

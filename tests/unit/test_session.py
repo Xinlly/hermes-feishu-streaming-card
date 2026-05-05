@@ -44,12 +44,13 @@ def test_terminal_completion_applies_even_when_streaming_delta_sequence_arrived_
     assert session.last_sequence == 100
 
 
-def test_tool_updates_count_unique_events():
+def test_tool_updates_count_all_events():
     session = CardSession(conversation_id="chat-1", message_id="msg-1", chat_id="oc_abc")
     session.apply(event("tool.updated", 1, {"tool_id": "t1", "name": "search", "status": "running"}))
     session.apply(event("tool.updated", 2, {"tool_id": "t1", "name": "search", "status": "completed"}))
     session.apply(event("tool.updated", 3, {"tool_id": "t2", "name": "fetch", "status": "completed"}))
-    assert session.tool_count == 2
+    assert session.tool_count == 3  # 3 actual tool calls (1 unique: t1 called twice, t2 once)
+    assert len(session.tools) == 2  # tools dict still deduplicates
     assert session.tools["t1"].status == "completed"
 
 
