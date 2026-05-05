@@ -124,7 +124,7 @@ async def _events(request: web.Request) -> web.Response:
 
     metrics.events_received += 1
     message_locks: Dict[str, asyncio.Lock] = request.app[MESSAGE_LOCKS_KEY]
-    lock = message_locks.setdefault(event.message_id, asyncio.Lock())
+    lock = message_locks.setdefault(_session_key(event), asyncio.Lock())
     async with lock:
         response = await _apply_event_locked(request, event)
     return response
@@ -161,7 +161,7 @@ async def _apply_event_locked(request: web.Request, event: SidecarEvent) -> web.
         )
         sessions[_session_key(event)] = session
         applied = session.apply(event)
-        if applied and event.message_id not in feishu_message_ids:
+        if applied and _session_key(event) not in feishu_message_ids:
             route = _resolve_route(request, event)
             if route is None:
                 sessions.pop(_session_key(event), None)
@@ -183,8 +183,8 @@ async def _apply_event_locked(request: web.Request, event: SidecarEvent) -> web.
                     {"ok": False, "error": "feishu send failed"},
                     status=502,
                 )
-            feishu_message_ids[event.message_id] = message_id
-            message_bot_ids[event.message_id] = route.bot_id
+            feishu_message_ids[_session_key(event)] = message_id
+            message_bot_ids[_session_key(event)] = route.bot_id
         if applied:
             metrics.events_applied += 1
         else:
@@ -195,7 +195,7 @@ async def _apply_event_locked(request: web.Request, event: SidecarEvent) -> web.
         metrics.events_ignored += 1
         return web.json_response({"ok": True, "applied": False})
 
-    feishu_message_id = feishu_message_ids.get(event.message_id)
+    feishu_message_id = feishu_message_ids.get(_session_key(event))
     if _would_apply(session, event) and feishu_message_id is None:
         metrics.events_rejected += 1
         return web.json_response(
@@ -224,7 +224,7 @@ async def _apply_event_locked(request: web.Request, event: SidecarEvent) -> web.
                 request,
                 feishu_message_id,
                 _render_session_card(request, session),
-                message_bot_ids.get(event.message_id),
+                message_bot_ids.get(_session_key(event)),
             )
             if not updated and event.event not in TERMINAL_EVENTS:
                 metrics.events_rejected += 1
@@ -238,11 +238,11 @@ async def _apply_event_locked(request: web.Request, event: SidecarEvent) -> web.
                         request.app,
                         feishu_message_id,
                         _render_session_card(request, session),
-                        message_bot_ids.get(event.message_id),
+                        message_bot_ids.get(_session_key(event)),
                     )
                 )
         if should_update:
-            last_update_at[event.message_id] = time.monotonic()
+            last_update_at[_session_key(event)] = time.monotonic()
     if applied:
         metrics.events_applied += 1
     else:
@@ -456,7 +456,7 @@ def _would_apply(session: CardSession, event: SidecarEvent) -> bool:
 def _should_update_card(last_update_at: Dict[str, float], event: SidecarEvent) -> bool:
     if event.event in TERMINAL_EVENTS:
         return True
-    previous = last_update_at.get(event.message_id)
+    previous = last_update_at.get(_session_key(event))
     if previous is None:
         return True
     return time.monotonic() - previous >= UPDATE_MIN_INTERVAL_SECONDS
@@ -465,7 +465,7 @@ def _should_update_card(last_update_at: Dict[str, float], event: SidecarEvent) -
 def _update_delay_seconds(last_update_at: Dict[str, float], event: SidecarEvent) -> float:
     if event.event not in TERMINAL_EVENTS:
         return 0.0
-    previous = last_update_at.get(event.message_id)
+    previous = last_update_at.get(_session_key(event))
     if previous is None:
         return 0.0
     return max(0.0, UPDATE_MIN_INTERVAL_SECONDS - (time.monotonic() - previous))
