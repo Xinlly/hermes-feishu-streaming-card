@@ -55,7 +55,7 @@ def test_english_readme_and_docs_are_linked():
     assert "display.platforms.feishu.streaming" in english_readme
     assert "Do not treat `display.show_reasoning`" in english_readme
     assert "thinking.delta" in english_readme
-    assert "424 passed" in english_readme
+    assert "425 passed" in english_readme
     assert "Multi-bot" in english_readme
     assert "group chat" in english_readme
 
