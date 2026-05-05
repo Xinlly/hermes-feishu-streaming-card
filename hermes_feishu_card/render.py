@@ -19,7 +19,7 @@ DEFAULT_TITLE = "Hermes Agent"
 _SPINNER_FRAMES = ("⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏")
 
 def _spinner_text(label: str = "生成中") -> str:
-    frame = _SPINNER_FRAMES[int(_time.time() * 5) % len(_SPINNER_FRAMES)]
+    frame = _SPINNER_FRAMES[int(_time.time() * 8) % len(_SPINNER_FRAMES)]
     return f"{frame} {label}"
 
 def render_card(
