@@ -32,6 +32,29 @@ python3 -m hermes_feishu_card.cli setup --hermes-dir ~/.hermes/hermes-agent --ye
 - **故障隔离**：sidecar 不可用时 Hermes hook fail-open，原生文本继续运行
 - **安全安装**：安装器 fail-closed，检查版本和代码结构后写入，`restore`/`uninstall` 检测改动拒绝覆盖
 
+## 升级
+
+从 V3.2.x 升级到 V3.3.0 向后兼容，**单 Profile 配置无需任何修改**。
+
+```bash
+# 1. 停止 sidecar
+python3 -m hermes_feishu_card.cli stop --config ~/.hermes_feishu_card/config.yaml
+
+# 2. 更新代码
+cd /path/to/hermes-feishu-streaming-card
+git checkout v3.3.0 && pip install -e ".[test]" --upgrade
+
+# 3. 重新安装 hook（V3.3.0 修复了平台判断）
+python3 -m hermes_feishu_card.cli install --hermes-dir ~/.hermes/hermes-agent --yes
+
+# 4. 启动 sidecar
+python3 -m hermes_feishu_card.cli start --config ~/.hermes_feishu_card/config.yaml
+```
+
+**使用多 Profile**：在 `config.yaml` 中新增 `profiles` 字段（参考下方多 Profile 配置示例），每个 profile 独立填写 `feishu.app_id`/`app_secret`。多 Profile 模式下环境变量 `FEISHU_APP_ID`/`FEISHU_APP_SECRET` 不再生效。
+
+**回退 V3.2**：停止 sidecar，`git checkout v3.2.1`，重新 `pip install`，恢复备份的 `config.yaml`，重新 `install` + `start`。
+
 ## 配置
 
 复制 `config.yaml.example` 到本地，不要提交真实凭据。三种典型配置：

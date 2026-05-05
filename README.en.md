@@ -32,6 +32,29 @@ python3 -m hermes_feishu_card.cli setup --hermes-dir ~/.hermes/hermes-agent --ye
 - **Fault isolation**: sidecar unavailable → Hermes hook fail-open, native text continues working
 - **Safe installer**: fail-closed, checks version and code structure before writing. `restore`/`uninstall` refuse on modified files
 
+## Upgrading
+
+Upgrading from V3.2.x to V3.3.0 is backward-compatible. **Single-profile configs need no changes.**
+
+```bash
+# 1. Stop sidecar
+python3 -m hermes_feishu_card.cli stop --config ~/.hermes_feishu_card/config.yaml
+
+# 2. Update code
+cd /path/to/hermes-feishu-streaming-card
+git checkout v3.3.0 && pip install -e ".[test]" --upgrade
+
+# 3. Reinstall hook (V3.3.0 fixes platform check)
+python3 -m hermes_feishu_card.cli install --hermes-dir ~/.hermes/hermes-agent --yes
+
+# 4. Start sidecar
+python3 -m hermes_feishu_card.cli start --config ~/.hermes_feishu_card/config.yaml
+```
+
+**Using multi-profile**: add a `profiles` section to `config.yaml` (see multi-profile config example below) with per-profile `feishu.app_id`/`app_secret`. Environment variables `FEISHU_APP_ID`/`FEISHU_APP_SECRET` are ignored in multi-profile mode.
+
+**Rolling back to V3.2**: stop sidecar, `git checkout v3.2.1`, reinstall `pip`, restore backed-up `config.yaml`, re-run `install` + `start`.
+
 ## Configuration
 
 Copy `config.yaml.example` locally. Never commit real credentials. Three common setups:
