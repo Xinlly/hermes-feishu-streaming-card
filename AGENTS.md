@@ -149,6 +149,22 @@ simplify this unless you fully understand the lifecycle race conditions.
 - The `hermes_feishu_card` package must be installed into Hermes's Python
   environment so the injected `from hermes_feishu_card.hook_runtime import ...`
   resolves.
-- Non-terminal card updates are throttled to **minimum 2-second intervals**
+- Non-terminal card updates are throttled to **minimum 0.5-second intervals**
   (`UPDATE_MIN_INTERVAL_SECONDS` in `server.py`).
 - Feishu tenant token is cached for `expire - 60` seconds (default 7140s).
+
+## Release checklist
+
+打完 `git tag -a vX.Y.Z` 并推送后，**必须**用 `gh release create` 创建 GitHub Release：
+
+```bash
+gh release create vX.Y.Z \
+  --title "VX.Y.Z: <简短描述>" \
+  --notes "$(cat <<'EOF'
+## VX.Y.Z — YYYY-MM-DD
+...从 CHANGELOG.md 粘贴...
+EOF
+)"
+```
+
+Git tag 和 GitHub Release 是两个独立步骤，缺一不可。
