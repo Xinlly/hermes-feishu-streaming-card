@@ -4,6 +4,7 @@ from typing import Any, Dict
 
 from .session import CardSession
 from .text import normalize_stream_text
+import time as _time
 
 DEFAULT_FOOTER_FIELDS = (
     "duration",
@@ -14,6 +15,12 @@ DEFAULT_FOOTER_FIELDS = (
 )
 MAIN_CONTENT_CHUNK_CHARS = 2400
 DEFAULT_TITLE = "Hermes Agent"
+
+_SPINNER_FRAMES = ("⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏")
+
+def _spinner_text(label: str = "生成中") -> str:
+    frame = _SPINNER_FRAMES[int(_time.time() * 5) % len(_SPINNER_FRAMES)]
+    return f"{frame} {label}"
 
 def render_card(
     session: CardSession,
@@ -89,7 +96,7 @@ def _render_footer(
     if session.status == "failed":
         return "已停止"
     if session.status != "completed":
-        return "生成中"
+        return _spinner_text("生成中")
     tokens = session.tokens if isinstance(session.tokens, dict) else {}
     input_tokens = _safe_int(tokens.get("input_tokens"))
     output_tokens = _safe_int(tokens.get("output_tokens"))
