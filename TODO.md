@@ -32,8 +32,9 @@
 - [x] 编写从 legacy/dual（installer_v2.py、gateway_run_patch.py、patch_feishu.py）安装迁移到 sidecar-only 的安全迁移说明
 - [x] 端到端截图与验证材料（e2e-card-preview.svg、e2e-card-preview.json、generate_e2e_preview.py）
 
-## P2/P3 (V3.4 候选)
+## V3.4 (计划)
 
+- [ ] **媒体/文件消息处理**：图片、文件等非文本消息不走流式卡片，由 sidecar 拦截后直接发送原始文件（P0）
 - [ ] CLI 命令支持多 Profile 模式（`smoke-feishu-card`、`bots test` 等）
 - [ ] `/health.routing` 在多 Profile 下按 profile 分组展示
 - [ ] 跑通 Hermes Gateway 完整对话测试

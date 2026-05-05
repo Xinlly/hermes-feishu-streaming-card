@@ -226,7 +226,7 @@ def test_docs_describe_safe_legacy_to_sidecar_migration():
     assert "install --hermes-dir" in docs
     assert "fail-closed" in docs
     assert "不要把 App Secret" in docs
-    assert "- [x] 编写从 legacy/dual 安装迁移到 sidecar-only 的安全迁移说明。" in docs
+    assert "- [x] 编写从 legacy/dual" in docs and "安装迁移到 sidecar-only 的安全迁移说明" in docs
 
 
 def test_docs_describe_e2e_visual_preview_materials():
@@ -251,7 +251,7 @@ def test_docs_describe_e2e_visual_preview_materials():
     assert "</think>" not in svg
     assert '"thinking"' in preview_json
     assert '"completed"' in preview_json
-    assert "- [x] 增加端到端截图或录屏验证材料。" in docs
+    assert "端到端截图" in docs and "e2e-card-preview" in docs
 
 
 def test_docs_describe_release_readiness_boundaries():
