@@ -307,3 +307,25 @@ def test_safe_diagnostics_exposes_only_card_title():
 
     assert diagnostics["bots"][0]["card_title"] == "Sales Bot"
     assert "do-not-leak" not in str(diagnostics)
+
+
+def test_safe_diagnostics_hides_non_string_card_title():
+    registry = BotRegistry.from_config(
+        {
+            "bots": {
+                "default": "sales",
+                "items": {
+                    "sales": {
+                        "app_id": "cli_sales",
+                        "app_secret": "sales-secret",
+                        "card": {"title": {"template": "do-not-leak"}},
+                    }
+                },
+            },
+        }
+    )
+
+    diagnostics = registry.safe_diagnostics()
+
+    assert diagnostics["bots"][0]["card_title"] == ""
+    assert "do-not-leak" not in str(diagnostics)

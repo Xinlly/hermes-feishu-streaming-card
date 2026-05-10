@@ -131,7 +131,9 @@ class BotRegistry:
                     "bot_id": bot.bot_id,
                     "name": bot.name,
                     "app_id": bot.app_id,
-                    "card_title": bot.card.get("title", ""),
+                    "card_title": bot.card.get("title", "")
+                    if isinstance(bot.card.get("title"), str)
+                    else "",
                 }
                 for bot in self.list_bots()
             ],
