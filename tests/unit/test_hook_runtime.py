@@ -135,6 +135,23 @@ def test_build_started_event_extracts_reply_context_from_message_and_event_objec
     assert payload["data"]["reply_to_message_id"] == "om_parent"
 
 
+def test_build_started_event_preserves_canonical_reply_priority_across_sources():
+    class ReplyMessageObject:
+        chat_id = "oc_message"
+        message_id = "msg_message"
+        reply_to_message_id = "om_message_reply"
+
+    payload = hook_runtime.build_event(
+        "message.started",
+        {
+            "message": ReplyMessageObject(),
+            "quote_message_id": "om_quote",
+        },
+    )
+
+    assert payload["data"]["reply_to_message_id"] == "om_quote"
+
+
 def test_build_event_extracts_gateway_source_object():
     payload = hook_runtime.build_event(
         "message.started",

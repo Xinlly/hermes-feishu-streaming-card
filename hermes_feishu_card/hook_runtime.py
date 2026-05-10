@@ -378,6 +378,8 @@ def _event_data(
         if canonical_reply_id:
             data["reply_to_message_id"] = canonical_reply_id
         for reply_key in reply_aliases:
+            if reply_key == "reply_to_message_id":
+                continue
             value = _first_string(local_vars, (reply_key,))
             if value is None:
                 value = _first_attr_string(message_obj, (reply_key,))
