@@ -112,18 +112,17 @@ def test_build_started_event_extracts_reply_context_from_local_vars(field, expec
         },
     )
 
-    assert payload["data"][field] == expected
+    assert payload["data"]["reply_to_message_id"] == expected
 
 
 def test_build_started_event_extracts_reply_context_from_message_and_event_objects():
     class ReplyMessageObject:
         chat_id = "oc_message"
         message_id = "msg_message"
-        reply_to_message_id = "om_reply"
+        parent_message_id = "om_parent"
 
     class QuoteEventObject:
         quote_message_id = "om_quote"
-        parent_message_id = "om_parent"
 
     payload = hook_runtime.build_event(
         "message.started",
@@ -133,9 +132,7 @@ def test_build_started_event_extracts_reply_context_from_message_and_event_objec
         },
     )
 
-    assert payload["data"]["reply_to_message_id"] == "om_reply"
-    assert payload["data"]["quote_message_id"] == "om_quote"
-    assert payload["data"]["parent_message_id"] == "om_parent"
+    assert payload["data"]["reply_to_message_id"] == "om_parent"
 
 
 def test_build_event_extracts_gateway_source_object():
@@ -999,19 +996,48 @@ async def test_lookup_card_summary_gets_sidecar_summary(monkeypatch):
         "method": "GET",
         "timeout": 0.25,
     }
-    assert result == {
-        "ok": True,
-        "summary": "最终答案",
-        "profile_id": "work",
-        "chat_id": "oc_abc",
-        "message_id": "feishu-message-1",
-    }
+    assert result == "最终答案"
 
 
+@pytest.mark.parametrize(
+    "response",
+    [
+        {"ok": False, "summary": "最终答案"},
+        {"ok": True},
+        {"ok": True, "summary": ""},
+        {"ok": True, "summary": "   "},
+        {"ok": True, "summary": 123},
+        ["not", "a", "dict"],
+    ],
+)
 @pytest.mark.asyncio
-async def test_lookup_card_summary_fails_open_on_sidecar_error(monkeypatch):
+async def test_lookup_card_summary_returns_none_for_invalid_payloads(monkeypatch, response):
     def fake_open_json(_req, _timeout):
-        raise error.URLError("sidecar unavailable")
+        return response
+
+    monkeypatch.setattr(hook_runtime, "_open_json_request", fake_open_json)
+
+    result = await hook_runtime.lookup_card_summary(
+        "feishu-message-1",
+        event_url="http://sidecar.test/events",
+    )
+
+    assert result is None
+
+
+@pytest.mark.parametrize(
+    "exc",
+    [
+        error.URLError("sidecar unavailable"),
+        error.HTTPError("http://sidecar.test/summary", 404, "not found", {}, None),
+        json.JSONDecodeError("bad json", "}", 0),
+    ],
+    ids=["url-error", "http-404", "bad-json"],
+)
+@pytest.mark.asyncio
+async def test_lookup_card_summary_fails_open_on_sidecar_errors(monkeypatch, exc):
+    def fake_open_json(_req, _timeout):
+        raise exc
 
     monkeypatch.setattr(hook_runtime, "_open_json_request", fake_open_json)
 

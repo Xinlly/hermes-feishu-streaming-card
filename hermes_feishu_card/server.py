@@ -50,6 +50,7 @@ def create_app(
     app[FEISHU_CLIENT_KEY] = feishu_client
     app[SESSIONS_KEY] = {}
     app[FEISHU_MESSAGE_IDS_KEY] = {}
+    # TODO: replace this short-lived in-process index with bounded shared storage.
     app[CARD_SUMMARIES_KEY] = {}
     app[MESSAGE_BOT_IDS_KEY] = {}
     app[SESSION_CARD_CONFIGS_KEY] = {}
@@ -281,10 +282,13 @@ def _store_card_summary(
     session: CardSession,
     feishu_message_id: str,
 ) -> None:
+    summary = session.answer_text.strip()
+    if not summary:
+        return
     data = event.data if isinstance(event.data, dict) else {}
     profile_id = _safe_profile_id(data.get("profile_id"))
     app[CARD_SUMMARIES_KEY][feishu_message_id] = {
-        "summary": session.answer_text[:4000],
+        "summary": summary[:4000],
         "profile_id": profile_id,
         "chat_id": event.chat_id,
         "message_id": feishu_message_id,

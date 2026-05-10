@@ -280,6 +280,25 @@ async def test_completed_card_summary_can_be_looked_up_by_feishu_message_id(clie
     assert len(body["summary"]) == 4000
 
 
+async def test_blank_completed_card_summary_is_not_indexed(client):
+    test_client, _ = client
+
+    await test_client.post(
+        "/events",
+        json=event_payload("message.started", 0),
+    )
+    completed = await test_client.post(
+        "/events",
+        json=event_payload("message.completed", 1, {"answer": "   "}),
+    )
+    found = await test_client.get("/messages/feishu-message-1/summary")
+
+    assert completed.status == 200
+    assert await completed.json() == {"ok": True, "applied": True}
+    assert found.status == 404
+    assert await found.json() == {"ok": False, "error": "not found"}
+
+
 async def test_card_config_customizes_header_title():
     feishu_client = FakeFeishuClient()
     app = create_app(feishu_client, card_config={"title": "研发助手"})

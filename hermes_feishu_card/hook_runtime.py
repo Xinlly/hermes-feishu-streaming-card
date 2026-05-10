@@ -176,7 +176,7 @@ async def lookup_card_summary(
     message_id: str,
     event_url: str | None = None,
     timeout: float = DEFAULT_TIMEOUT_SECONDS,
-) -> dict[str, Any] | None:
+) -> str | None:
     try:
         message_id = str(message_id or "").strip()
         if not message_id:
@@ -185,7 +185,12 @@ async def lookup_card_summary(
         quoted_message_id = parse.quote(message_id, safe="")
         url = f"{base_url}/messages/{quoted_message_id}/summary"
         result = await _get_json(url, timeout)
-        return result if isinstance(result, dict) else None
+        if not isinstance(result, dict) or result.get("ok") is False:
+            return None
+        summary = result.get("summary")
+        if not isinstance(summary, str) or not summary.strip():
+            return None
+        return summary
     except Exception:
         return None
 
@@ -360,16 +365,24 @@ def _event_data(
             value = _first_string(local_vars, (source_key,)) or _first_attr_string(message_obj, (source_key,))
             if value:
                 data[data_key] = value
-        for reply_key in (
+        reply_aliases = (
             "reply_to_message_id",
             "quote_message_id",
             "parent_message_id",
-        ):
-            value = (
-                _first_string(local_vars, (reply_key,))
-                or _first_attr_string(message_obj, (reply_key,))
-                or _first_attr_string(local_vars.get("event"), (reply_key,))
-            )
+        )
+        canonical_reply_id = (
+            _first_string(local_vars, reply_aliases)
+            or _first_attr_string(message_obj, reply_aliases)
+            or _first_attr_string(local_vars.get("event"), reply_aliases)
+        )
+        if canonical_reply_id:
+            data["reply_to_message_id"] = canonical_reply_id
+        for reply_key in reply_aliases:
+            value = _first_string(local_vars, (reply_key,))
+            if value is None:
+                value = _first_attr_string(message_obj, (reply_key,))
+            if value is None:
+                value = _first_attr_string(local_vars.get("event"), (reply_key,))
             if value:
                 data[reply_key] = value
         return data
