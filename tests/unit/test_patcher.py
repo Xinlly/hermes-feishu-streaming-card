@@ -5,6 +5,53 @@ import pytest
 from hermes_feishu_card.install import patcher
 
 
+def test_apply_patch_accepts_explicit_legacy_strategy():
+    content = (
+        "async def _handle_message_with_agent(message):\n"
+        "    response = await run_agent(message)\n"
+        "    _response_time = 1\n"
+        "    agent_result = {}\n"
+        "    return response\n"
+    )
+
+    patched = patcher.apply_patch(content, strategy="legacy_gateway_run")
+
+    assert patcher.PATCH_BEGIN in patched
+    assert patcher.COMPLETE_PATCH_BEGIN in patched
+
+
+def test_apply_patch_accepts_013_plus_strategy_and_marks_strategy():
+    content = (
+        "class GatewayRunner:\n"
+        "    async def _handle_message_with_agent(self, event, source, _quick_key, run_generation):\n"
+        "        response = 'ok'\n"
+        "        _response_time = 1\n"
+        "        agent_result = {}\n"
+        "        return response\n"
+        "\n"
+        "    async def _run_agent(self, source, event_message_id=None):\n"
+        "        _loop_for_step = None\n"
+        "        def _run_still_current():\n"
+        "            return True\n"
+        "        def progress_callback(event_type: str, tool_name: str = None, preview: str = None, args: dict = None, **kwargs):\n"
+        "            return None\n"
+        "        def _stream_delta_cb(text: str) -> None:\n"
+        "            return None\n"
+        "        def _interim_assistant_cb(text: str, *, already_streamed: bool = False) -> None:\n"
+        "            return None\n"
+        "        return {}\n"
+        "\n"
+        "def _deliver_result(job: dict, content: str, adapters=None, loop=None):\n"
+        "    return None\n"
+    )
+
+    patched = patcher.apply_patch(content, strategy="gateway_run_013_plus")
+
+    assert "# HERMES_FEISHU_CARD_STRATEGY gateway_run_013_plus" in patched
+    assert patcher.PATCH_BEGIN in patched
+    assert patcher.COMPLETE_PATCH_BEGIN in patched
+
+
 def test_apply_patch_inserts_real_runtime_hook_call():
     content = (
         "async def _handle_message_with_agent(message):\n"

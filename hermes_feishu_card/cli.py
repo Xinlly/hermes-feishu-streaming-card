@@ -694,7 +694,9 @@ def _run_install(args: argparse.Namespace) -> int:
     try:
         original = _read_text_preserve_newlines(run_py)
         _validate_existing_install_state(run_py, backup_path, manifest_path)
-        patched = apply_patch(original)
+        patched = apply_patch(
+            original, strategy=detection.hook_strategy or "legacy_gateway_run"
+        )
         if not backup_existed:
             _atomic_write_text(backup_path, original)
         if patched != original:

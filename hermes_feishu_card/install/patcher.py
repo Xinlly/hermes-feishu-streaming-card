@@ -14,11 +14,14 @@ THINKING_DELTA_PATCH_END = "# HERMES_FEISHU_CARD_THINKING_DELTA_PATCH_END"
 
 _HANDLER_NAME = "_handle_message_with_agent"
 _NO_FINAL_NEWLINE = "# HERMES_FEISHU_CARD_NO_FINAL_NEWLINE"
+_SUPPORTED_STRATEGIES = {"legacy_gateway_run", "gateway_run_013_plus"}
 
 
-def apply_patch(content: str) -> str:
+def apply_patch(content: str, strategy: str = "legacy_gateway_run") -> str:
     """Insert the Feishu card hook block into a safe Hermes message handler."""
-    content = _apply_start_patch(content)
+    if strategy not in _SUPPORTED_STRATEGIES:
+        raise ValueError(f"unsupported patch strategy: {strategy}")
+    content = _apply_start_patch(content, strategy=strategy)
     content = _apply_complete_patch(content)
     content = _apply_callback_patch(
         content,
@@ -64,14 +67,14 @@ def apply_patch(content: str) -> str:
     )
 
 
-def _apply_start_patch(content: str) -> str:
+def _apply_start_patch(content: str, *, strategy: str) -> str:
     owned_block = _find_owned_block(content)
     if owned_block is not None:
         lines = content.splitlines(keepends=True)
         begin_index, end_index = owned_block
         indent = _leading_whitespace(_strip_line_ending(lines[begin_index]))
         newline = _line_ending(lines[begin_index]) or _detect_newline(content)
-        expected = _render_hook_block(indent, newline)
+        expected = _render_hook_block(indent, newline, strategy=strategy)
         if lines[begin_index : end_index + 1] == expected:
             return content
         return "".join(lines[:begin_index] + expected + lines[end_index + 1 :])
@@ -84,7 +87,7 @@ def _apply_start_patch(content: str) -> str:
 
     newline = _detect_newline(content)
     insert_at, body_indent = handler_body
-    hook = _render_hook_block(body_indent, newline)
+    hook = _render_hook_block(body_indent, newline, strategy=strategy)
     if _needs_leading_newline(lines, insert_at):
         hook = [newline, f"{body_indent}{_NO_FINAL_NEWLINE}{newline}"] + hook
 
@@ -429,11 +432,14 @@ def _find_owned_block(content: str):
 
     indent = _leading_whitespace(_strip_line_ending(lines[begin_index]))
     newline = _line_ending(lines[begin_index]) or _detect_newline(content)
-    expected = _render_hook_block(indent, newline)
+    legacy = _render_hook_block(indent, newline, strategy="legacy_gateway_run")
+    gateway_013_plus = _render_hook_block(
+        indent, newline, strategy="gateway_run_013_plus"
+    )
     placeholder = _render_placeholder_hook_block(indent, newline)
     actual = lines[begin_index : end_index + 1]
 
-    if actual not in (expected, placeholder):
+    if actual not in (legacy, gateway_013_plus, placeholder):
         raise ValueError("corrupt patch markers")
 
     tree = _parse_content_with_markers(content)
@@ -445,7 +451,10 @@ def _find_owned_block(content: str):
         raise ValueError("corrupt patch markers")
 
     first_body_index, _body_indent = handler_body
-    if begin_index != first_body_index - 1:
+    expected_begin_index = (
+        first_body_index - 2 if actual == gateway_013_plus else first_body_index - 1
+    )
+    if begin_index != expected_begin_index:
         raise ValueError("corrupt patch markers")
     return begin_index, end_index
 
@@ -607,9 +616,9 @@ def _exact_marker_line_index(lines, marker: str):
     return None
 
 
-def _render_hook_block(indent: str, newline: str):
+def _render_hook_block(indent: str, newline: str, strategy: str = "legacy_gateway_run"):
     inner_indent = _child_indent(indent)
-    return [
+    block = [
         f"{indent}{PATCH_BEGIN}{newline}",
         f"{indent}try:{newline}",
         (
@@ -621,6 +630,12 @@ def _render_hook_block(indent: str, newline: str):
         f"{inner_indent}pass{newline}",
         f"{indent}{PATCH_END}{newline}",
     ]
+    if strategy == "gateway_run_013_plus":
+        block.insert(
+            1,
+            f"{indent}# HERMES_FEISHU_CARD_STRATEGY gateway_run_013_plus{newline}",
+        )
+    return block
 
 
 def _render_complete_hook_block(indent: str, newline: str):

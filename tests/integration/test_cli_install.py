@@ -423,6 +423,22 @@ def test_install_upgrades_owned_callback_blocks_from_previous_version(tmp_path):
     )
 
 
+def test_install_and_restore_013_plus_fixture(tmp_path):
+    hermes_dir = tmp_path / "hermes"
+    shutil.copytree(
+        Path(__file__).resolve().parents[1] / "fixtures" / "hermes_0_13_plus",
+        hermes_dir,
+    )
+
+    assert cli.main(["install", "--hermes-dir", str(hermes_dir), "--yes"]) == 0
+    patched = (hermes_dir / "gateway" / "run.py").read_text(encoding="utf-8")
+    assert "HERMES_FEISHU_CARD_STRATEGY gateway_run_013_plus" in patched
+
+    assert cli.main(["restore", "--hermes-dir", str(hermes_dir), "--yes"]) == 0
+    restored = (hermes_dir / "gateway" / "run.py").read_text(encoding="utf-8")
+    assert "HERMES_FEISHU_CARD_PATCH_BEGIN" not in restored
+
+
 def test_restore_accepts_phase_one_placeholder_install(tmp_path):
     hermes_dir = copy_hermes(tmp_path)
     original = write_phase_one_install_state(hermes_dir)
