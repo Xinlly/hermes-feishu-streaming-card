@@ -1,18 +1,22 @@
-# Hermes 飞书流式卡片插件 V3.4.3
+# Hermes 飞书流式卡片插件 V3.5.0
 
 [中文](README.md) | [English](README.en.md)
 
 ![Hermes Feishu Streaming Card 封面](docs/assets/readme-cover.png)
 
-为 Hermes Agent Gateway 的飞书/Lark 平台提供流式卡片消息。V3.4.3 **sidecar-only** 架构，支持 Hermes 0.13.0+/0.14.0 与 `v2026.5.16+` 新版兼容、多 Profile 进程内隔离、多 Bot 路由、DeepSeek 思维链兼容和表格/代码块结构化渲染保护。向后兼容 V3.2 及更早配置。
+为 Hermes Agent Gateway 的飞书/Lark 平台提供流式卡片消息。V3.5.0 **sidecar-only** 架构，支持 Hermes 0.13.0+/0.14.0 与 `v2026.5.16+` 新版兼容、多 Profile 进程内隔离、多 Bot 路由、飞书按钮交互、DeepSeek 思维链兼容和表格/代码块结构化渲染保护。向后兼容 V3.2 及更早配置。
 
 ![飞书流式卡片真实效果截图](docs/assets/feishu-weather-card.png)
 
-## V3.4.3 更新重点
+## V3.5.0 更新重点
 
+- **新增飞书按钮交互闭环**：Hermes 授权/选项请求会进入同一张流式卡片，用户点击按钮后 sidecar 记录选择，Hermes hook 轮询结果并继续执行，原卡片同步更新为已选择状态。
+- **修复 issue #41**：多条回复和新版 Hermes 流式链路继续走卡片更新，最终回答不再从第二条开始退回原生 text 模式。
+- **处理 PR #42**：cron 卡片路由优先使用 `job['deliver']` 和 scheduler 解析出的 Feishu target，迁移自 Discord/Telegram 的任务不会因旧 `origin.platform` 跳过卡片。
+- **长表格/代码块保护增强**：超过 `MAIN_CONTENT_CHUNK_CHARS` 的单个 Markdown 表格或 fenced code block 会按结构拆成多个仍合法的 Markdown 块，避免飞书渲染成 raw markdown。
+- **思考过程漏字/截断修复**：Hermes interim assistant callback 作为完整思考片段写入 `thinking.delta(mode=append_block)`，避免把完整句子当字符增量拼接造成丢字或粘连。
+- **Hermes `v0.14.0` / `v2026.5.16+` 继续支持**：安装器会选择 `gateway_run_013_plus`；`v2026.4.x` 仍保留 `legacy_gateway_run`。
 - **修复 issue #39**：DeepSeek V4 Pro 工具调用后，如果 `message.completed.answer` 为空，不再清空已经通过 `answer.delta` 流式展示的答案，避免飞书端最终无内容。
-- **吸收 PR #38 核心能力**：长 Markdown 内容按段落、表格、fenced code block 边界切分，不再按固定字符数切断表格或代码块。
-- **Hermes `v0.14.0` / `v2026.5.16+` 支持确认**：安装器会选择 `gateway_run_013_plus`；`v2026.4.x` 仍保留 `legacy_gateway_run`。
 - **修复 issue #31**：同一张飞书卡片的 PATCH 更新按 session 串行执行，避免旧内容后到覆盖新内容，导致思考过程漏字、截断或闪烁回退。
 - **并发事件 sequence 更稳**：Hermes 多线程回调同时产生 `thinking.delta` / `answer.delta` 时，运行时会安全分配递增 sequence，避免有效增量被误判为旧事件。
 - **修复 issue #25**：Hermes v2026.5.7 started hook 的 `event_message_id` 会作为显式 `message_id` 使用，避免 `message.started` 和 `message.completed` fallback 卡片 ID 不一致。
@@ -41,6 +45,7 @@ python3 -m hermes_feishu_card.cli setup --hermes-dir ~/.hermes/hermes-agent --ye
 - **Profile / Bot 卡片标题**：全局、profile 和 bot 均可设置卡片标题，bot 级标题优先
 - **流式思考展示**：`thinking.delta` 累积渲染，自动过滤 `<think>`/`</think>` 及 DeepSeek `<thinking>`/`</thinking>` 标签
 - **渐进式答案更新**：`answer.delta` 分段进入同一张卡片，完成后覆盖思考内容
+- **授权/选项按钮**：Hermes approval 和 clarify choices 可在同一张飞书卡片内显示为按钮，点击后继续原 Hermes 任务
 - **Cron 最终卡片与回复上下文**：cron 任务可发送最终卡片，回复卡片保留必要上下文
 - **附件摘要与原生媒体投递**：附件摘要进入卡片，媒体内容按飞书原生消息能力投递
 - **工具调用跟踪**：`tool.updated` 显示累计调用次数和状态
@@ -52,7 +57,7 @@ python3 -m hermes_feishu_card.cli setup --hermes-dir ~/.hermes/hermes-agent --ye
 
 ## 升级
 
-从 V3.2.x/V3.3.0/V3.4.x 升级到 V3.4.3 向后兼容，**单 Profile 配置无需任何修改**。如果升级的是 Hermes 0.13.0+/0.14.0 或 `v2026.5.16+`，必须重新执行 `install --hermes-dir ... --yes`，让安装器写入 `gateway_run_013_plus` hook strategy；`v2026.4.x` 旧版 Hermes 会继续使用 `legacy_gateway_run`。
+从 V3.2.x/V3.3.0/V3.4.x 升级到 V3.5.0 向后兼容，**单 Profile 配置无需任何修改**。如果升级的是 Hermes 0.13.0+/0.14.0 或 `v2026.5.16+`，必须重新执行 `install --hermes-dir ... --yes`，让安装器写入 `gateway_run_013_plus` hook strategy；`v2026.4.x` 旧版 Hermes 会继续使用 `legacy_gateway_run`。
 
 ```bash
 # 1. 停止 sidecar
@@ -60,12 +65,12 @@ python3 -m hermes_feishu_card.cli stop --config ~/.hermes_feishu_card/config.yam
 
 # 2. 更新代码
 cd /path/to/hermes-feishu-streaming-card
-git checkout v3.4.3 && pip install -e ".[test]" --upgrade
+git checkout v3.5.0 && pip install -e ".[test]" --upgrade
 
 # 3. 诊断 Hermes hook strategy 与 anchors
 python3 -m hermes_feishu_card.cli doctor --config ~/.hermes_feishu_card/config.yaml --hermes-dir ~/.hermes/hermes-agent
 
-# 4. 重新安装 hook（V3.4.3 会按 Hermes 版本选择 hook_strategy）
+# 4. 重新安装 hook（V3.5.0 会按 Hermes 版本选择 hook_strategy）
 python3 -m hermes_feishu_card.cli install --hermes-dir ~/.hermes/hermes-agent --yes
 
 # 5. 启动 sidecar
@@ -224,6 +229,7 @@ Hermes hook 将 `message.started` / `thinking.delta` / `answer.delta` / `tool.up
 
 | 版本 | 日期 | 主要变更 |
 |------|------|---------|
+| [v3.5.0](https://github.com/baileyh8/hermes-feishu-streaming-card/releases/tag/v3.5.0) | 2026-06 | 飞书按钮交互闭环、issue #41、PR #42、长表格/代码块结构拆分、thinking 漏字修复 |
 | [v3.4.3](https://github.com/baileyh8/hermes-feishu-streaming-card/releases/tag/v3.4.3) | 2026-05 | 修复 issue #39，Markdown 结构化切分，确认 Hermes v0.14.0/v2026.5.16+ 支持 |
 | [v3.4.2](https://github.com/baileyh8/hermes-feishu-streaming-card/releases/tag/v3.4.2) | 2026-05 | 修复 issue #31，避免并发 PATCH 和 sequence 竞争导致流式卡片内容回退/漏字 |
 | [v3.4.1](https://github.com/baileyh8/hermes-feishu-streaming-card/releases/tag/v3.4.1) | 2026-05 | 修复 issue #25，Hermes v2026.5.7 fallback message id 生命周期一致 |

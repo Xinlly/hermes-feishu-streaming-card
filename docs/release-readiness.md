@@ -2,7 +2,7 @@
 
 [中文](release-readiness.md) | [English](release-readiness.en.md)
 
-当前包版本为 `3.1.0`。这一版定位为 sidecar-only 主线的正式发布版本，新增面向普通用户的 `setup` 整合安装器，已完成真实 Hermes Gateway + 真实 Feishu 测试应用验收，适合正式安装和小范围生产使用。
+当前包版本为 `3.5.0`。这一版继续保持 sidecar-only 主线，重点补齐 Hermes 授权/选项请求的飞书卡片按钮交互闭环，并修复多条回复退回 text 模式、长表格/代码块 raw markdown、thinking 文本截断和 cron deliver 优先级问题。
 
 ## 已具备
 
@@ -14,6 +14,10 @@
 - E2E 预览材料和生成器。
 - 真实长卡压力测试：同一张 Feishu 卡片更新到 16k 中文字符成功。
 - 真实 Hermes `v2026.4.23` 目录 `restore -> install` 循环验证。
+- Hermes `0.13.0+` / `0.14.0` / `v2026.5.16+` 使用 `gateway_run_013_plus` hook strategy，旧版 `v2026.4.x` 保持 `legacy_gateway_run`。
+- 飞书卡片按钮交互覆盖 `interaction.requested`、`/card/actions`、`/interactions/{interaction_id}` 的本地 mock 验收。
+- Markdown 长表格/长代码块超过 `MAIN_CONTENT_CHUNK_CHARS` 后按完整结构重复切分，避免 raw markdown。
+- thinking/interim assistant 使用 `append_block` 完整块追加，避免 delta 累积导致漏字或截断。
 - GitHub Actions 会在 PR/push 上运行 Python 3.9/3.12 的测试矩阵。
 
 ## 发布前必须验证

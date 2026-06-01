@@ -261,6 +261,65 @@ async def test_event_lifecycle_sends_then_updates_final_card(client):
     assert metrics["feishu_update_retries"] == 0
 
 
+async def test_interaction_request_renders_buttons_and_callback_resolves(client):
+    test_client, feishu_client = client
+
+    await test_client.post("/events", json=event_payload("message.started", 0))
+    requested = await test_client.post(
+        "/events",
+        json=event_payload(
+            "interaction.requested",
+            1,
+            {
+                "interaction_id": "approval-1",
+                "kind": "approval",
+                "prompt": "允许执行命令吗？",
+                "description": "rm -rf /tmp/demo",
+                "options": [
+                    {"label": "允许一次", "value": "once", "style": "primary"},
+                    {"label": "拒绝", "value": "deny", "style": "danger"},
+                ],
+            },
+        ),
+    )
+
+    assert requested.status == 200
+    assert (await requested.json()) == {"ok": True, "applied": True}
+    interaction_card = feishu_client.updated[-1][1]
+    action_element = next(
+        element
+        for element in interaction_card["body"]["elements"]
+        if element.get("element_id") == "interaction_actions"
+    )
+    action_value = action_element["actions"][0]["value"]
+
+    callback = await test_client.post(
+        "/card/actions",
+        json={
+            "event": {
+                "operator": {"open_id": "ou_bailey", "name": "Bailey"},
+                "context": {"open_chat_id": "oc_abc"},
+                "action": {"value": action_value},
+            }
+        },
+    )
+    result = await test_client.get("/interactions/approval-1")
+
+    assert callback.status == 200
+    callback_body = await callback.json()
+    assert callback_body["ok"] is True
+    assert callback_body["toast"]["type"] == "success"
+    assert result.status == 200
+    assert await result.json() == {
+        "ok": True,
+        "status": "completed",
+        "choice": "once",
+        "choice_label": "允许一次",
+        "interaction_id": "approval-1",
+    }
+    assert "已选择：允许一次" in str(feishu_client.updated[-1][1])
+
+
 async def test_completed_card_summary_can_be_looked_up_by_feishu_message_id(client):
     test_client, _ = client
     long_answer = "最终答案" * 1000

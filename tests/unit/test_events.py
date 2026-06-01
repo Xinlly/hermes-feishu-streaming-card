@@ -23,6 +23,24 @@ def test_parses_valid_event():
     assert event.sequence == 2
 
 
+@pytest.mark.parametrize(
+    "event_name",
+    ["interaction.requested", "interaction.completed", "interaction.failed"],
+)
+def test_parses_interaction_events(event_name):
+    payload = valid_payload(event=event_name)
+    payload["data"] = {
+        "interaction_id": "approval-1",
+        "kind": "approval",
+        "prompt": "允许执行命令吗？",
+    }
+
+    event = SidecarEvent.from_dict(payload)
+
+    assert event.event == event_name
+    assert event.data["interaction_id"] == "approval-1"
+
+
 def test_rejects_unknown_event_name():
     with pytest.raises(EventValidationError, match="unknown event"):
         SidecarEvent.from_dict(valid_payload(event="bad.event"))

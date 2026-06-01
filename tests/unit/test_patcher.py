@@ -290,6 +290,9 @@ def test_apply_patch_inserts_streaming_callback_hooks():
         "\n"
         "async def _run_agent(self, source, event_message_id=None):\n"
         "    _loop_for_step = asyncio.get_running_loop()\n"
+        "    session_key = 'sess-1'\n"
+        "    _status_chat_id = source.chat_id\n"
+        "    _approval_session_key = session_key\n"
         "    def _run_still_current():\n"
         "        return True\n"
         "\n"
@@ -304,6 +307,12 @@ def test_apply_patch_inserts_streaming_callback_hooks():
         "        if already_streamed:\n"
         "            return\n"
         "        status_queue.put(text)\n"
+        "\n"
+        "    def _clarify_callback_sync(question: str, choices):\n"
+        "        return \"\"\n"
+        "\n"
+        "    def _approval_notify_sync(approval_data: dict) -> None:\n"
+        "        return None\n"
     )
 
     patched = patcher.apply_patch(content)
@@ -311,13 +320,18 @@ def test_apply_patch_inserts_streaming_callback_hooks():
     assert patcher.TOOL_PATCH_BEGIN in patched
     assert patcher.ANSWER_DELTA_PATCH_BEGIN in patched
     assert patcher.THINKING_DELTA_PATCH_BEGIN in patched
+    assert patcher.CLARIFY_PATCH_BEGIN in patched
+    assert patcher.APPROVAL_PATCH_BEGIN in patched
     assert 'event_name="tool.updated"' in patched
     assert 'event_name="answer.delta"' in patched
     assert 'event_name="thinking.delta"' in patched
+    assert '"kind": "clarify"' in patched
+    assert "resolve_gateway_approval" in patched
     assert (
         'if event_type in ("tool.started", "tool.completed") and _run_still_current():'
         in patched
     )
+    assert '"mode": "append_block"' in patched
     assert '}, event_name="tool.updated"):\n                    return\n' in patched
     assert "if text and _run_still_current():" in patched
     assert "if text and not already_streamed and _run_still_current():" in patched

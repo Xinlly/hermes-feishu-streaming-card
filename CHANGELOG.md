@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.2.0.html).
 
+## V3.5.0 — 2026-06-01
+
+### Added
+- Feishu card interaction loop for Hermes approval and choice prompts: `interaction.requested` renders buttons in the active card, `/card/actions` records the user's selection, and the Hermes hook polls `/interactions/{interaction_id}` so the original task can continue.
+- Patcher support for Hermes `v0.14.0` / `v2026.5.16+` approval and clarify callbacks.
+
+### Fixed
+- issue #41: multi-reply/newer Hermes streaming flows keep final answers on the card path instead of falling back to native text after the first reply.
+- PR #42: cron card delivery now prioritizes `job['deliver']` and scheduler-resolved Feishu targets over stale `origin.platform` metadata.
+- Long single Markdown tables and fenced code blocks are split into valid repeated table/code chunks when they exceed `MAIN_CONTENT_CHUNK_CHARS`, preventing raw Markdown rendering in Feishu.
+- Thinking/interim assistant text is emitted as complete `append_block` chunks so sentences are not truncated, glued, or dropped by delta-style accumulation.
+
+### Tests
+- Added regression coverage for interaction event parsing, session state, card buttons, Feishu callback resolution, Hermes hook polling, cron deliver precedence, long table/code chunking, and thinking append-block behavior.
+
 ## V3.4.3 — 2026-05-27
 
 ### Fixed

@@ -14,18 +14,22 @@ Hermes 最小 hook 向 sidecar 发送消息生命周期事件。第二阶段 hoo
 | `answer.delta` | 最终答案增量。sidecar 累积答案内容，等待完成事件落最终态。 |
 | `message.completed` | 消息正常完成。卡片状态切换为 `已完成`，最终答案覆盖思考内容。 |
 | `message.failed` | 消息失败。卡片结束当前流式更新，并展示可公开的失败状态或摘要。 |
+| `interaction.requested` | Hermes 需要用户授权或选择时发出。sidecar 在同一张卡片中渲染按钮，并在 `/interactions/{interaction_id}` 暴露等待状态。 |
+| `interaction.completed` | 用户点击卡片按钮后发出。sidecar 更新原卡片为已选择状态，并让 Hermes hook 轮询到选择结果后继续执行。 |
+| `interaction.failed` | 交互请求失败或超时。sidecar 保留失败状态，Hermes hook 可 fail-open 回到原生 Hermes 交互路径。 |
 
 ## 卡片状态
 
 卡片正常状态只有两个：
 
 - `思考中`
+- `等待选择`
 - `已完成`
 
-`思考中` 阶段显示累积的 `thinking.delta` 内容，并在同一张卡片内实时更新工具调用次数。`message.completed` 后，卡片进入 `已完成`，最终答案替换思考内容；用户不需要在完成态继续看到完整思考轨迹。
+`思考中` 阶段显示累积的 `thinking.delta` 内容，并在同一张卡片内实时更新工具调用次数。`interaction.requested` 到达后，卡片进入 `等待选择`，按钮点击会触发 sidecar `/card/actions`，更新原卡片并写入选择结果。`message.completed` 后，卡片进入 `已完成`，最终答案替换思考内容；用户不需要在完成态继续看到完整思考轨迹。
 
 ## 内容安全
 
 sidecar 必须过滤模型内部思考边界，不得向卡片泄露 `</think>` 标签或类似控制标记。最终答案应来自对外可见的回答内容，而不是原始内部流。
 
-真实 Feishu CardKit 创建/更新仍属于后续联调范围；当前协议和卡片行为通过 fake client、fixture Hermes 和 mock sidecar 测试守卫。
+当前协议和卡片行为通过 fake client、fixture Hermes、mock sidecar、Feishu callback 模拟和真实 Feishu smoke 测试守卫。
