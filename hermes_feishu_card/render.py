@@ -34,6 +34,7 @@ def render_card(
     footer = _render_footer(session, footer_fields)
     header_title = title.strip() if isinstance(title, str) and title.strip() else DEFAULT_TITLE
     elements = _render_main_content_elements(main_text)
+    elements.extend(_render_interaction_elements(session))
     if attachment_summary:
         elements.append(
             {
@@ -71,6 +72,8 @@ def _render_status(session: CardSession) -> Dict[str, str]:
         return {"subtitle": "已完成", "template": "green"}
     if session.status == "failed":
         return {"subtitle": "处理失败", "template": "red"}
+    if session.active_interaction is not None and session.active_interaction.status == "pending":
+        return {"subtitle": "等待选择", "template": "orange"}
     return {"subtitle": "思考中", "template": "indigo"}
 
 
@@ -95,6 +98,79 @@ def _render_main_content_elements(main_text: str) -> list[Dict[str, Any]]:
         element_id = "main_content" if index == 0 else f"main_content_{index}"
         elements.append({"tag": "markdown", "element_id": element_id, "content": chunk})
     return elements
+
+
+def _render_interaction_elements(session: CardSession) -> list[Dict[str, Any]]:
+    interaction = session.active_interaction
+    if interaction is None:
+        return []
+
+    prompt = interaction.prompt or "请选择下一步"
+    lines = [f"**{prompt}**"]
+    if interaction.description:
+        lines.append("")
+        lines.append(interaction.description)
+
+    elements: list[Dict[str, Any]] = [
+        {
+            "tag": "markdown",
+            "element_id": "interaction_prompt",
+            "content": "\n".join(lines),
+        }
+    ]
+    if interaction.status == "pending":
+        actions = []
+        for option in interaction.options:
+            actions.append(
+                {
+                    "tag": "button",
+                    "text": {"tag": "plain_text", "content": option.label},
+                    "type": _button_type(option.style),
+                    "value": {
+                        "hfc_action": "interaction.select",
+                        "interaction_id": interaction.interaction_id,
+                        "choice": option.value,
+                        "choice_label": option.label,
+                        "token": interaction.callback_token,
+                    },
+                }
+            )
+        if actions:
+            elements.append(
+                {
+                    "tag": "action",
+                    "element_id": "interaction_actions",
+                    "actions": actions,
+                }
+            )
+        return elements
+
+    if interaction.status == "completed":
+        choice = interaction.choice_label or interaction.choice or "已完成"
+        user = f" by {interaction.user_name}" if interaction.user_name else ""
+        content = f"已选择：{choice}{user}"
+    else:
+        content = interaction.error or "交互请求失败"
+    elements.append(
+        {
+            "tag": "markdown",
+            "element_id": "interaction_result",
+            "content": content,
+        }
+    )
+    return elements
+
+
+def _button_type(style: str) -> str:
+    normalized = str(style or "").strip().lower()
+    if normalized in {"primary", "danger", "default"}:
+        return normalized
+    if normalized in {"red", "warning", "destructive"}:
+        return "danger"
+    if normalized in {"green", "success"}:
+        return "primary"
+    return "default"
+
 
 def _render_tool_summary(session: CardSession) -> str:
     if not session.tools:

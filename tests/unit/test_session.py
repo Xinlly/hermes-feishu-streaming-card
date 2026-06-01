@@ -25,6 +25,15 @@ def test_thinking_accumulates_and_strips_tags():
     assert session.thinking_text == "先分析结束。"
 
 
+def test_thinking_append_block_preserves_complete_interim_messages():
+    session = CardSession(conversation_id="chat-1", message_id="msg-1", chat_id="oc_abc")
+
+    assert session.apply(event("thinking.delta", 1, {"text": "我先来讲今天的 AI。", "mode": "append_block"}))
+    assert session.apply(event("thinking.delta", 2, {"text": "接着看第二个现象。", "mode": "append_block"}))
+
+    assert session.thinking_text == "我先来讲今天的 AI。\n\n接着看第二个现象。"
+
+
 def test_rejects_duplicate_and_stale_sequence():
     session = CardSession(conversation_id="chat-1", message_id="msg-1", chat_id="oc_abc")
     assert session.apply(event("thinking.delta", 2, {"text": "新"}))
@@ -128,6 +137,51 @@ def test_session_stores_attachment_and_delivery_metadata():
         {"kind": "file", "name": "report.pdf", "summary": "report.pdf"}
     ]
     assert session.visible_main_text == "最终答案"
+
+
+def test_session_tracks_pending_and_completed_interaction():
+    session = CardSession(conversation_id="chat-1", message_id="msg-1", chat_id="oc_abc")
+
+    assert session.apply(
+        event(
+            "interaction.requested",
+            1,
+            {
+                "interaction_id": "approval-1",
+                "kind": "approval",
+                "prompt": "允许执行命令吗？",
+                "description": "rm -rf /tmp/demo",
+                "options": [
+                    {"label": "允许一次", "value": "once"},
+                    {"label": "拒绝", "value": "deny", "style": "danger"},
+                ],
+            },
+        )
+    )
+
+    assert session.active_interaction is not None
+    assert session.active_interaction.interaction_id == "approval-1"
+    assert session.active_interaction.status == "pending"
+    assert session.active_interaction.options[0].value == "once"
+
+    assert session.apply(
+        event(
+            "interaction.completed",
+            2,
+            {
+                "interaction_id": "approval-1",
+                "choice": "once",
+                "choice_label": "允许一次",
+                "user_name": "Bailey",
+            },
+        )
+    )
+
+    assert session.active_interaction is not None
+    assert session.active_interaction.status == "completed"
+    assert session.active_interaction.choice == "once"
+    assert session.active_interaction.choice_label == "允许一次"
+    assert session.active_interaction.user_name == "Bailey"
 
 
 def test_answer_delta_takes_over_visible_text_before_completion():

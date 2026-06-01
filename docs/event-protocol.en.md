@@ -14,18 +14,22 @@ The minimal Hermes hook sends message lifecycle events to the sidecar. The hook 
 | `answer.delta` | Incremental final-answer content; the sidecar accumulates answer text until completion. |
 | `message.completed` | The message completes successfully; the card switches to `已完成` and final answer content replaces thinking content. |
 | `message.failed` | The message fails; the card stops streaming and shows a public failure state or summary. |
+| `interaction.requested` | Hermes needs user approval or a choice. The sidecar renders buttons in the same card and exposes pending state through `/interactions/{interaction_id}`. |
+| `interaction.completed` | A card button was clicked. The sidecar updates the original card with the selected option and lets the Hermes hook poll the result to continue. |
+| `interaction.failed` | The interaction failed or timed out. The sidecar preserves the failed state and the Hermes hook can fail open to native Hermes behavior. |
 
 ## Card States
 
 Normal card states are intentionally simple:
 
 - `思考中` (thinking)
+- `等待选择` (waiting for choice)
 - `已完成` (completed)
 
-During `思考中`, the card shows accumulated `thinking.delta` content and real-time tool call counts. After `message.completed`, the card enters `已完成`, the final answer replaces thinking content, and users no longer need to see the full thinking trace in the completed state.
+During `思考中`, the card shows accumulated `thinking.delta` content and real-time tool call counts. When `interaction.requested` arrives, the card enters `等待选择`; button clicks hit the sidecar `/card/actions` route, update the original card, and store the selected result. After `message.completed`, the card enters `已完成`, the final answer replaces thinking content, and users no longer need to see the full thinking trace in the completed state.
 
 ## Content Safety
 
 The sidecar must filter internal thinking boundaries and must not expose `</think>` or similar control tags. Final answers should come from public response content, not raw internal streams.
 
-The protocol and card behavior are guarded by fake client, fixture Hermes, mock sidecar, and real Feishu smoke coverage.
+The protocol and card behavior are guarded by fake client, fixture Hermes, mock sidecar, Feishu callback simulation, and real Feishu smoke coverage.

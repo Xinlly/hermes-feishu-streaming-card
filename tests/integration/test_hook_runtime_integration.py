@@ -169,6 +169,7 @@ async def test_installed_hook_forwards_streaming_tool_and_completion_events(
             "profile_id": "default",
             "profile_source": "fallback_default",
             "text": "thinking fixture delta",
+            "mode": "append_block",
         }
         assert received[2]["data"] == {
             "profile_id": "default",

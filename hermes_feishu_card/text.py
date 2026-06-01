@@ -84,6 +84,20 @@ def split_markdown_blocks(text: str, max_block_size: int) -> list[str]:
     chunks: list[str] = []
     current = ""
     for block in blocks:
+        if len(block) > max_block_size and _is_fenced_code_block(block):
+            if current:
+                chunks.append(current)
+                current = ""
+            chunks.extend(_split_fenced_code_block(block, max_block_size))
+            continue
+
+        if len(block) > max_block_size and _is_table_block(block):
+            if current:
+                chunks.append(current)
+                current = ""
+            chunks.extend(_split_table_block(block, max_block_size))
+            continue
+
         if len(block) > max_block_size and not _is_structured_markdown_block(block):
             if current:
                 chunks.append(current)
@@ -157,6 +171,80 @@ def _markdown_structure_blocks(text: str) -> list[str]:
 
 def _is_structured_markdown_block(block: str) -> bool:
     return "```" in block or TABLE_SEPARATOR_RE.search(block) is not None
+
+
+def _is_fenced_code_block(block: str) -> bool:
+    lines = block.splitlines(keepends=True)
+    return bool(lines) and FENCE_RE.match(lines[0]) is not None
+
+
+def _is_table_block(block: str) -> bool:
+    lines = block.splitlines(keepends=True)
+    return (
+        len(lines) >= 2
+        and TABLE_ROW_RE.match(lines[0]) is not None
+        and TABLE_SEPARATOR_RE.match(lines[1]) is not None
+    )
+
+
+def _split_fenced_code_block(block: str, max_block_size: int) -> list[str]:
+    lines = block.splitlines(keepends=True)
+    if len(lines) < 2:
+        return _split_plain_block(block, max_block_size)
+    opening = lines[0]
+    closing = lines[-1] if FENCE_RE.match(lines[-1]) else "```\n"
+    body_lines = lines[1:-1] if closing == lines[-1] else lines[1:]
+    overhead = len(opening) + len(closing)
+    if overhead >= max_block_size:
+        return _split_plain_block(block, max_block_size)
+    body_limit = max_block_size - overhead
+    chunks: list[str] = []
+    current = ""
+    for line in body_lines:
+        if current and len(current) + len(line) > body_limit:
+            chunks.append(_wrap_code_chunk(opening, current, closing))
+            current = ""
+        if len(line) > body_limit:
+            for piece in _split_plain_block(line, body_limit):
+                chunks.append(_wrap_code_chunk(opening, piece, closing))
+            continue
+        current += line
+    if current or not chunks:
+        chunks.append(_wrap_code_chunk(opening, current, closing))
+    return chunks
+
+
+def _wrap_code_chunk(opening: str, body: str, closing: str) -> str:
+    if body and not body.endswith("\n"):
+        body += "\n"
+    return opening + body + closing
+
+
+def _split_table_block(block: str, max_block_size: int) -> list[str]:
+    lines = block.splitlines(keepends=True)
+    if len(lines) < 3:
+        return _split_plain_block(block, max_block_size)
+    header = "".join(lines[:2])
+    rows = lines[2:]
+    if len(header) >= max_block_size:
+        return _split_plain_block(block, max_block_size)
+    row_limit = max_block_size - len(header)
+    chunks: list[str] = []
+    current = ""
+    for row in rows:
+        if current and len(current) + len(row) > row_limit:
+            chunks.append(header + current)
+            current = ""
+        if len(row) > row_limit:
+            if current:
+                chunks.append(header + current)
+                current = ""
+            chunks.extend(header + piece for piece in _split_plain_block(row, row_limit))
+            continue
+        current += row
+    if current or not chunks:
+        chunks.append(header + current)
+    return chunks
 
 
 def _split_plain_block(block: str, max_block_size: int) -> list[str]:

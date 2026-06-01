@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import secrets
 from typing import Any, Dict
 
 from .events import SidecarEvent
@@ -13,6 +14,28 @@ class ToolState:
     name: str
     status: str
     detail: str = ""
+
+
+@dataclass
+class InteractionOption:
+    label: str
+    value: str
+    style: str = "default"
+
+
+@dataclass
+class InteractionState:
+    interaction_id: str
+    kind: str
+    prompt: str
+    description: str = ""
+    status: str = "pending"
+    options: list[InteractionOption] = field(default_factory=list)
+    callback_token: str = ""
+    choice: str = ""
+    choice_label: str = ""
+    user_name: str = ""
+    error: str = ""
 
 
 @dataclass
@@ -30,6 +53,7 @@ class CardSession:
     context: Dict[str, Any] = field(default_factory=dict)
     duration: float = 0.0
     attachments: list[dict[str, str]] = field(default_factory=list)
+    active_interaction: InteractionState | None = None
     delivery_kind: str = "chat"
     reply_to_message_id: str = ""
     _tool_call_count: int = field(default=0)
@@ -63,7 +87,19 @@ class CardSession:
         self.last_sequence = max(self.last_sequence, event.sequence)
 
         if event.event == "thinking.delta":
-            self.thinking_text += self.thinking_normalizer.feed(str(event.data.get("text", "")))
+            mode = str(event.data.get("mode") or "delta").strip().lower()
+            raw_text = str(event.data.get("text", ""))
+            if mode == "replace":
+                self.thinking_text = normalize_stream_text(raw_text)
+            elif mode == "append_block":
+                text = normalize_stream_text(raw_text).strip()
+                if text:
+                    if self.thinking_text:
+                        self.thinking_text = self.thinking_text.rstrip() + "\n\n" + text
+                    else:
+                        self.thinking_text = text
+            else:
+                self.thinking_text += self.thinking_normalizer.feed(raw_text)
         elif event.event == "answer.delta":
             self.answer_text += self.answer_normalizer.feed(str(event.data.get("text", "")))
         elif event.event == "tool.updated":
@@ -87,6 +123,12 @@ class CardSession:
             reply_to_message_id = event.data.get("reply_to_message_id")
             if isinstance(reply_to_message_id, str):
                 self.reply_to_message_id = reply_to_message_id
+        elif event.event == "interaction.requested":
+            self.active_interaction = _interaction_from_event_data(event.data)
+        elif event.event == "interaction.completed":
+            self._complete_interaction(event.data)
+        elif event.event == "interaction.failed":
+            self._fail_interaction(event.data)
         elif event.event == "message.completed":
             self.status = "completed"
             completed_answer = normalize_stream_text(str(event.data.get("answer") or ""))
@@ -120,3 +162,55 @@ class CardSession:
             error = event.data.get("error")
             self.answer_text = error if isinstance(error, str) else "消息处理失败"
         return True
+
+    def _complete_interaction(self, data: dict[str, Any]) -> None:
+        interaction_id = str(data.get("interaction_id") or "").strip()
+        if self.active_interaction is None or (
+            interaction_id and interaction_id != self.active_interaction.interaction_id
+        ):
+            return
+        self.active_interaction.status = "completed"
+        self.active_interaction.choice = str(data.get("choice") or "").strip()
+        self.active_interaction.choice_label = str(
+            data.get("choice_label") or self.active_interaction.choice
+        ).strip()
+        self.active_interaction.user_name = str(data.get("user_name") or "").strip()
+
+    def _fail_interaction(self, data: dict[str, Any]) -> None:
+        interaction_id = str(data.get("interaction_id") or "").strip()
+        if self.active_interaction is None or (
+            interaction_id and interaction_id != self.active_interaction.interaction_id
+        ):
+            return
+        self.active_interaction.status = "failed"
+        self.active_interaction.error = str(data.get("error") or "交互请求失败").strip()
+
+
+def _interaction_from_event_data(data: dict[str, Any]) -> InteractionState:
+    interaction_id = str(data.get("interaction_id") or "").strip()
+    if not interaction_id:
+        interaction_id = secrets.token_hex(8)
+    return InteractionState(
+        interaction_id=interaction_id,
+        kind=str(data.get("kind") or "choice").strip() or "choice",
+        prompt=str(data.get("prompt") or "").strip(),
+        description=str(data.get("description") or "").strip(),
+        options=_interaction_options(data.get("options")),
+        callback_token=str(data.get("callback_token") or secrets.token_urlsafe(16)),
+    )
+
+
+def _interaction_options(value: Any) -> list[InteractionOption]:
+    if not isinstance(value, list):
+        return []
+    options: list[InteractionOption] = []
+    for index, item in enumerate(value, start=1):
+        if not isinstance(item, dict):
+            continue
+        label = str(item.get("label") or item.get("text") or item.get("value") or "").strip()
+        option_value = str(item.get("value") or label or index).strip()
+        if not label or not option_value:
+            continue
+        style = str(item.get("style") or item.get("type") or "default").strip() or "default"
+        options.append(InteractionOption(label=label, value=option_value, style=style))
+    return options

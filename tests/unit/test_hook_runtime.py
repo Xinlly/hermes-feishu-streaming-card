@@ -279,6 +279,82 @@ def test_build_completed_event_preserves_duration_and_tokens():
     }
 
 
+def test_build_interaction_event_reuses_active_card_message_id():
+    local_vars = {
+        "chat_id": "oc_abc",
+        "conversation_id": "conv_abc",
+        "event_message_id": "om_hermes_20260516",
+    }
+
+    started = hook_runtime.build_event("message.started", local_vars)
+    interaction = hook_runtime.build_interaction_event(
+        local_vars,
+        kind="approval",
+        interaction_id="approval-1",
+        prompt="允许执行命令吗？",
+        description="rm -rf /tmp/demo",
+        options=[
+            {"label": "允许一次", "value": "once"},
+            {"label": "拒绝", "value": "deny"},
+        ],
+    )
+
+    assert interaction["event"] == "interaction.requested"
+    assert interaction["message_id"] == started["message_id"]
+    assert interaction["data"]["interaction_id"] == "approval-1"
+    assert interaction["data"]["kind"] == "approval"
+    assert interaction["data"]["prompt"] == "允许执行命令吗？"
+    assert interaction["data"]["options"][0]["value"] == "once"
+
+
+def test_request_interaction_posts_event_and_polls_until_completed(monkeypatch):
+    posted = []
+    polls = iter(
+        [
+            {"ok": True, "status": "pending", "interaction_id": "approval-1"},
+            {
+                "ok": True,
+                "status": "completed",
+                "interaction_id": "approval-1",
+                "choice": "once",
+                "choice_label": "允许一次",
+            },
+        ]
+    )
+    monkeypatch.setenv("HERMES_FEISHU_CARD_EVENT_URL", "http://sidecar.test/events")
+
+    def fake_post(url, payload, timeout):
+        posted.append((url, payload, timeout))
+        return True
+
+    def fake_get(url, timeout):
+        assert url == "http://sidecar.test/interactions/approval-1"
+        return next(polls)
+
+    monkeypatch.setattr(hook_runtime, "_post_json_sync", fake_post)
+    monkeypatch.setattr(hook_runtime, "_get_json_sync", fake_get)
+
+    result = hook_runtime.request_interaction_from_hermes_locals(
+        {"chat_id": "oc_abc", "message_id": "msg_1"},
+        kind="approval",
+        interaction_id="approval-1",
+        prompt="允许执行命令吗？",
+        options=[{"label": "允许一次", "value": "once"}],
+        timeout_seconds=1,
+        poll_interval_seconds=0,
+    )
+
+    assert result == {
+        "ok": True,
+        "status": "completed",
+        "interaction_id": "approval-1",
+        "choice": "once",
+        "choice_label": "允许一次",
+    }
+    assert posted[0][0] == "http://sidecar.test/events"
+    assert posted[0][1]["event"] == "interaction.requested"
+
+
 def test_completed_event_extracts_attachment_summaries_from_response():
     payload = hook_runtime.build_event(
         "message.completed",
@@ -416,6 +492,27 @@ def test_build_cron_event_uses_auto_deliver_chat_id(monkeypatch):
     )
 
     assert payload["chat_id"] == "oc_env"
+
+
+def test_build_cron_event_prefers_explicit_deliver_and_resolved_feishu_target():
+    payload = hook_runtime.build_cron_event(
+        {
+            "job": {
+                "id": "job-migrated",
+                "deliver": "feishu",
+                "origin": {"platform": "discord", "chat_id": "discord-channel"},
+                "_hfc_resolved_targets": [
+                    {"platform": "feishu", "chat_id": "oc_resolved"}
+                ],
+            },
+            "content": "迁移后的定时任务结果",
+        }
+    )
+
+    assert payload is not None
+    assert payload["chat_id"] == "oc_resolved"
+    assert payload["platform"] == "feishu"
+    assert payload["data"]["answer"] == "迁移后的定时任务结果"
 
 
 def test_build_cron_event_returns_none_for_non_feishu_or_missing_chat(monkeypatch):

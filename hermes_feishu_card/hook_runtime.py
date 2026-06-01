@@ -31,6 +31,9 @@ SUPPORTED_RUNTIME_EVENTS = {
     "tool.updated",
     "message.completed",
     "message.failed",
+    "interaction.requested",
+    "interaction.completed",
+    "interaction.failed",
 }
 
 
@@ -161,6 +164,144 @@ def emit_cron_delivery(local_vars: dict[str, Any]) -> bool:
         return False
 
 
+def build_interaction_event(
+    local_vars: dict[str, Any],
+    *,
+    kind: str,
+    interaction_id: str,
+    prompt: str,
+    options: list[dict[str, Any]] | None = None,
+    description: str = "",
+    timeout_seconds: float | None = None,
+) -> dict[str, Any] | None:
+    event_locals = {
+        **local_vars,
+        "_hfc_interaction_id": interaction_id,
+        "_hfc_interaction_kind": kind,
+        "_hfc_interaction_prompt": prompt,
+        "_hfc_interaction_description": description,
+        "_hfc_interaction_options": options or [],
+        "_hfc_interaction_timeout_seconds": timeout_seconds,
+    }
+    return build_event("interaction.requested", event_locals)
+
+
+def request_interaction_from_hermes_locals(
+    local_vars: dict[str, Any],
+    *,
+    kind: str,
+    interaction_id: str,
+    prompt: str,
+    options: list[dict[str, Any]] | None = None,
+    description: str = "",
+    timeout_seconds: float | None = None,
+    poll_interval_seconds: float | None = None,
+) -> dict[str, Any] | None:
+    try:
+        config = load_runtime_config()
+        if not config.enabled:
+            return None
+        payload = build_interaction_event(
+            local_vars,
+            kind=kind,
+            interaction_id=interaction_id,
+            prompt=prompt,
+            options=options or [],
+            description=description,
+            timeout_seconds=timeout_seconds,
+        )
+        if payload is None:
+            return None
+        if not _post_json_sync(
+            config.event_url, payload, _timeout_for_event(config, payload["event"])
+        ):
+            return None
+        base_url = _summary_base_url(config.event_url)
+        url = f"{base_url}/interactions/{parse.quote(interaction_id, safe='')}"
+        timeout = _interaction_timeout(timeout_seconds)
+        poll_interval = _interaction_poll_interval(poll_interval_seconds)
+        deadline = time.monotonic() + timeout
+        while True:
+            result = _get_json_sync(url, config.timeout_seconds)
+            if isinstance(result, dict) and result.get("status") in {"completed", "failed"}:
+                return result
+            if time.monotonic() >= deadline:
+                return {
+                    "ok": False,
+                    "status": "timeout",
+                    "interaction_id": interaction_id,
+                }
+            time.sleep(poll_interval)
+    except Exception:
+        return None
+
+
+def request_approval_choice_from_hermes_locals(
+    local_vars: dict[str, Any],
+    approval_data: dict[str, Any],
+    *,
+    interaction_id: str,
+    timeout_seconds: float | None = None,
+) -> str | None:
+    command = str(approval_data.get("command") or "").strip()
+    description = str(approval_data.get("description") or "dangerous command").strip()
+    result = request_interaction_from_hermes_locals(
+        local_vars,
+        kind="approval",
+        interaction_id=interaction_id,
+        prompt="需要授权后继续执行",
+        description=f"```\n{command[:3000]}\n```\n\n{description}",
+        options=[
+            {"label": "允许一次", "value": "once", "style": "primary"},
+            {"label": "本会话允许", "value": "session"},
+            {"label": "始终允许", "value": "always"},
+            {"label": "拒绝", "value": "deny", "style": "danger"},
+        ],
+        timeout_seconds=timeout_seconds,
+    )
+    if isinstance(result, dict) and result.get("status") == "completed":
+        choice = str(result.get("choice") or "").strip()
+        return choice or None
+    return None
+
+
+def request_clarify_response_from_hermes_locals(
+    local_vars: dict[str, Any],
+    *,
+    interaction_id: str,
+    question: str,
+    choices: Any,
+    timeout_seconds: float | None = None,
+) -> str | None:
+    if not choices:
+        return None
+    options = []
+    for index, choice in enumerate(list(choices)):
+        label = str(choice).strip()
+        if label:
+            options.append(
+                {
+                    "label": label,
+                    "value": label,
+                    "style": "primary" if index == 0 else "default",
+                }
+            )
+    if not options:
+        return None
+    result = request_interaction_from_hermes_locals(
+        local_vars,
+        kind="clarify",
+        interaction_id=interaction_id,
+        prompt=str(question or "请选择").strip(),
+        options=options,
+        timeout_seconds=timeout_seconds,
+    )
+    if isinstance(result, dict) and result.get("status") == "completed":
+        choice = str(result.get("choice") or "").strip()
+        return choice or None
+    return None
+
+
 def should_suppress_native_response(
     platform: str, delivered: bool, attachments: Any = None
 ) -> bool:
@@ -279,6 +420,15 @@ def _open_json_request(req: request.Request, timeout: float) -> Any:
     return json.loads(body.decode("utf-8"))
 
 
+def _get_json_sync(url: str, timeout: float) -> Any:
+    req = request.Request(
+        url,
+        headers={"Accept": "application/json"},
+        method="GET",
+    )
+    return _open_json_request(req, timeout)
+
+
 def build_event(
     event_name: str, local_vars: dict[str, Any], preview: bool = False
 ) -> dict[str, Any] | None:
@@ -394,14 +544,22 @@ def build_cron_event(local_vars: dict[str, Any]) -> dict[str, Any] | None:
     origin = job.get("origin")
     if not isinstance(origin, dict):
         origin = {}
-    chat_id = str(
-        origin.get("chat_id") or os.environ.get("HERMES_CRON_AUTO_DELIVER_CHAT_ID") or ""
-    ).strip()
+    resolved_targets = _resolved_cron_targets(local_vars, job)
+    resolved_chat_id = _resolved_target_chat_id(resolved_targets, "feishu")
+    deliver_platform = _deliver_platform(job.get("deliver"))
     platform = str(
-        origin.get("platform")
+        deliver_platform
+        or _first_target_platform(resolved_targets)
+        or origin.get("platform")
         or os.environ.get("HERMES_CRON_AUTO_DELIVER_PLATFORM")
         or "feishu"
     ).strip().lower()
+    chat_id = str(
+        resolved_chat_id
+        or origin.get("chat_id")
+        or os.environ.get("HERMES_CRON_AUTO_DELIVER_CHAT_ID")
+        or ""
+    ).strip()
     if platform != "feishu" or not chat_id:
         return None
 
@@ -430,6 +588,88 @@ def build_cron_event(local_vars: dict[str, Any]) -> dict[str, Any] | None:
     }
 
 
+def _interaction_timeout(value: float | None) -> float:
+    if value is not None and math.isfinite(value) and value >= 0:
+        return value
+    env_value = _finite_float(os.environ.get("HERMES_FEISHU_CARD_INTERACTION_TIMEOUT_SECONDS"))
+    if env_value is not None and env_value >= 0:
+        return env_value
+    return 300.0
+
+
+def _interaction_poll_interval(value: float | None) -> float:
+    if value is not None and math.isfinite(value) and value >= 0:
+        return value
+    env_value = _finite_float(os.environ.get("HERMES_FEISHU_CARD_INTERACTION_POLL_SECONDS"))
+    if env_value is not None and 0 <= env_value <= 5:
+        return env_value
+    return 0.5
+
+
+def _coerce_interaction_options(value: Any) -> list[dict[str, str]]:
+    if not isinstance(value, list):
+        return []
+    options: list[dict[str, str]] = []
+    for item in value:
+        if not isinstance(item, dict):
+            continue
+        label = str(item.get("label") or item.get("text") or item.get("value") or "").strip()
+        option_value = str(item.get("value") or label).strip()
+        if not label or not option_value:
+            continue
+        style = str(item.get("style") or item.get("type") or "default").strip() or "default"
+        options.append({"label": label, "value": option_value, "style": style})
+    return options
+
+
+def _resolved_cron_targets(
+    local_vars: dict[str, Any], job: dict[str, Any]
+) -> list[dict[str, Any]]:
+    value = local_vars.get("_hfc_resolved_targets")
+    if value is None:
+        value = job.get("_hfc_resolved_targets")
+    if value is None:
+        value = job.get("resolved_targets")
+    if not isinstance(value, list):
+        return []
+    return [item for item in value if isinstance(item, dict)]
+
+
+def _deliver_platform(value: Any) -> str:
+    if isinstance(value, dict):
+        return str(value.get("platform") or value.get("type") or "").strip().lower()
+    text = str(value or "").strip().lower()
+    if not text:
+        return ""
+    if ":" in text:
+        return text.split(":", 1)[0].strip()
+    return text
+
+
+def _first_target_platform(targets: list[dict[str, Any]]) -> str:
+    for target in targets:
+        platform = str(target.get("platform") or target.get("type") or "").strip().lower()
+        if platform:
+            return platform
+    return ""
+
+
+def _resolved_target_chat_id(targets: list[dict[str, Any]], platform: str) -> str:
+    for target in targets:
+        target_platform = str(target.get("platform") or target.get("type") or "").strip().lower()
+        if target_platform != platform:
+            continue
+        chat_id = str(
+            target.get("chat_id")
+            or target.get("open_chat_id")
+            or target.get("receive_id")
+            or ""
+        ).strip()
+        if chat_id:
+            return chat_id
+    return ""
+
+
 def _event_data(
     event_name: str, local_vars: dict[str, Any], source_obj: Any, message_obj: Any
 ) -> dict[str, Any]:
@@ -443,6 +683,43 @@ def _event_data(
         if text is None:
             text = _first_attr_string(message_obj, ("text", "content"))
         data["text"] = text or ""
+        mode = _first_string(local_vars, ("mode", "_hfc_text_mode"))
+        if mode:
+            data["mode"] = mode
+        return data
+    if event_name.startswith("interaction."):
+        data.update(
+            {
+                "interaction_id": (
+                    _first_string(local_vars, ("_hfc_interaction_id", "interaction_id"))
+                    or ""
+                ),
+                "kind": (
+                    _first_string(local_vars, ("_hfc_interaction_kind", "kind"))
+                    or "choice"
+                ),
+                "prompt": (
+                    _first_string(
+                        local_vars,
+                        ("_hfc_interaction_prompt", "prompt", "question"),
+                    )
+                    or ""
+                ),
+                "description": (
+                    _first_string(
+                        local_vars,
+                        ("_hfc_interaction_description", "description"),
+                    )
+                    or ""
+                ),
+                "options": _coerce_interaction_options(
+                    local_vars.get("_hfc_interaction_options", local_vars.get("options"))
+                ),
+            }
+        )
+        timeout_value = _finite_float(local_vars.get("_hfc_interaction_timeout_seconds"))
+        if timeout_value is not None:
+            data["timeout_seconds"] = timeout_value
         return data
     if event_name == "tool.updated":
         tool_id = _first_string(local_vars, ("tool_id", "tool_call_id", "name")) or "tool"

@@ -43,6 +43,96 @@ def test_render_completed_card_replaces_thinking():
     assert "不会展示" not in content
 
 
+def test_render_pending_interaction_as_buttons():
+    from hermes_feishu_card.events import SidecarEvent
+
+    session = CardSession(conversation_id="chat-1", message_id="msg-1", chat_id="oc_abc")
+    session.apply(
+        SidecarEvent(
+            schema_version="1",
+            event="interaction.requested",
+            conversation_id="chat-1",
+            message_id="msg-1",
+            chat_id="oc_abc",
+            platform="feishu",
+            sequence=1,
+            created_at=0.0,
+            data={
+                "interaction_id": "approval-1",
+                "kind": "approval",
+                "prompt": "允许执行命令吗？",
+                "description": "rm -rf /tmp/demo",
+                "options": [
+                    {"label": "允许一次", "value": "once", "style": "primary"},
+                    {"label": "拒绝", "value": "deny", "style": "danger"},
+                ],
+            },
+        )
+    )
+
+    card = render_card(session)
+
+    actions = [
+        element
+        for element in card["body"]["elements"]
+        if element.get("element_id") == "interaction_actions"
+    ][0]["actions"]
+    assert [item["text"]["content"] for item in actions] == ["允许一次", "拒绝"]
+    assert actions[0]["value"]["interaction_id"] == "approval-1"
+    assert actions[0]["value"]["choice"] == "once"
+    assert actions[0]["value"]["token"]
+    assert "rm -rf /tmp/demo" in str(card)
+
+
+def test_render_completed_interaction_replaces_buttons_with_choice():
+    from hermes_feishu_card.events import SidecarEvent
+
+    session = CardSession(conversation_id="chat-1", message_id="msg-1", chat_id="oc_abc")
+    session.apply(
+        SidecarEvent(
+            schema_version="1",
+            event="interaction.requested",
+            conversation_id="chat-1",
+            message_id="msg-1",
+            chat_id="oc_abc",
+            platform="feishu",
+            sequence=1,
+            created_at=0.0,
+            data={
+                "interaction_id": "approval-1",
+                "kind": "approval",
+                "prompt": "允许执行命令吗？",
+                "options": [{"label": "允许一次", "value": "once"}],
+            },
+        )
+    )
+    session.apply(
+        SidecarEvent(
+            schema_version="1",
+            event="interaction.completed",
+            conversation_id="chat-1",
+            message_id="msg-1",
+            chat_id="oc_abc",
+            platform="feishu",
+            sequence=2,
+            created_at=0.0,
+            data={
+                "interaction_id": "approval-1",
+                "choice": "once",
+                "choice_label": "允许一次",
+                "user_name": "Bailey",
+            },
+        )
+    )
+
+    card = render_card(session)
+    element_ids = [element.get("element_id") for element in card["body"]["elements"]]
+
+    assert "interaction_actions" not in element_ids
+    assert "已选择：允许一次" in str(card)
+    assert "Bailey" in str(card)
+
+
 def test_render_completed_card_shows_attachment_summary():
     session = CardSession(conversation_id="c", message_id="m", chat_id="oc")
     session.status = "completed"
@@ -113,6 +203,44 @@ def test_render_long_main_content_splits_markdown_elements_without_truncating():
     assert len(main_elements) == 3
     assert all(len(item["content"]) <= 2400 for item in main_elements)
     assert "".join(item["content"] for item in main_elements) == session.answer_text
+
+
+def test_render_long_table_chunks_keep_markdown_table_shape():
+    session = CardSession(conversation_id="chat-1", message_id="msg-1", chat_id="oc_abc")
+    rows = "\n".join(f"| {index} | {'甲' * 80} |" for index in range(80))
+    session.answer_text = f"| id | content |\n| --- | --- |\n{rows}\n"
+    session.status = "completed"
+
+    card = render_card(session)
+
+    main_elements = [
+        item
+        for item in card["body"]["elements"]
+        if str(item.get("element_id", "")).startswith("main_content")
+    ]
+    assert len(main_elements) > 1
+    assert all(len(item["content"]) <= 2400 for item in main_elements)
+    assert all("| id | content |" in item["content"] for item in main_elements)
+    assert all("| --- | --- |" in item["content"] for item in main_elements)
+
+
+def test_render_long_code_block_chunks_remain_fenced():
+    session = CardSession(conversation_id="chat-1", message_id="msg-1", chat_id="oc_abc")
+    code = "\n".join(f"print({index!r})  # {'x' * 80}" for index in range(90))
+    session.answer_text = f"```python\n{code}\n```"
+    session.status = "completed"
+
+    card = render_card(session)
+
+    main_elements = [
+        item
+        for item in card["body"]["elements"]
+        if str(item.get("element_id", "")).startswith("main_content")
+    ]
+    assert len(main_elements) > 1
+    assert all(len(item["content"]) <= 2400 for item in main_elements)
+    assert all(item["content"].startswith("```python\n") for item in main_elements)
+    assert all(item["content"].rstrip().endswith("```") for item in main_elements)
 
 
 def test_render_failed_card_shows_error_without_thinking():

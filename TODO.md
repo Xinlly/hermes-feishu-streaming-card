@@ -37,6 +37,14 @@
 - [x] 编写从 legacy/dual（installer_v2.py、gateway_run_patch.py、patch_feishu.py）安装迁移到 sidecar-only 的安全迁移说明。
 - [x] 端到端截图与验证材料（e2e-card-preview.svg、e2e-card-preview.json、generate_e2e_preview.py）。
 
+## V3.5.0 (已完成)
+
+- [x] Hermes 授权/选项请求在飞书卡片中渲染按钮，用户点击后原任务继续并更新原卡片
+- [x] issue #41：多条回复/新版 Hermes 流式链路第二条开始不再退回 text 模式
+- [x] PR #42：cron deliver 与 scheduler resolved targets 优先于陈旧 `origin.platform`
+- [x] 超过 `MAIN_CONTENT_CHUNK_CHARS` 的长表格/代码块按完整 Markdown 结构切分，避免飞书 raw markdown
+- [x] thinking/interim assistant 使用 `append_block` 完整块追加，减少句子截断、漏字和粘连
+
 ## V3.4 (计划)
 
 - [x] issue #39：修复 DeepSeek V4 Pro 工具调用后 blank completed answer 清空流式答案（V3.4.3）
