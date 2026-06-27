@@ -464,9 +464,7 @@ def _find_callback_body_location(
     required_outer_names=(),
     required_callback_args=(),
 ):
-    # Hermes 0.17.0+ 把 _run_agent 重构为 4 行包装器，实际逻辑在 _run_agent_inner。
-    # 先搜 _run_agent_inner，找不到再 fallback 到 _run_agent（兼容旧版本）。
-    run_agent = _find_run_agent_inner_node(tree) or _find_run_agent_node(tree)
+    run_agent = _find_run_agent_node(tree)
     if run_agent is None:
         return None
     for node in ast.walk(run_agent):
@@ -770,40 +768,28 @@ def _find_handler_node(tree):
 
 
 def _find_run_agent_node(tree):
+    inner = _find_direct_run_agent_node(tree, "_run_agent_inner")
+    if inner is not None:
+        return inner
+    return _find_direct_run_agent_node(tree, "_run_agent")
+
+
+def _find_direct_run_agent_node(tree, name: str):
     for node in tree.body:
-        if _is_run_agent(node):
+        if _is_run_agent(node, name):
             return node
 
     for node in tree.body:
         if isinstance(node, ast.ClassDef):
             for child in node.body:
-                if _is_run_agent(child):
+                if _is_run_agent(child, name):
                     return child
 
     return None
 
 
-def _is_run_agent(node) -> bool:
-    return isinstance(node, ast.AsyncFunctionDef) and node.name == "_run_agent"
-
-
-def _find_run_agent_inner_node(tree):
-    """Hermes 0.17.0+: 回调查找应在 _run_agent_inner 中进行。"""
-    for node in tree.body:
-        if _is_run_agent_inner(node):
-            return node
-
-    for node in tree.body:
-        if isinstance(node, ast.ClassDef):
-            for child in node.body:
-                if _is_run_agent_inner(child):
-                    return child
-
-    return None
-
-
-def _is_run_agent_inner(node) -> bool:
-    return isinstance(node, ast.AsyncFunctionDef) and node.name == "_run_agent_inner"
+def _is_run_agent(node, name: str = "_run_agent") -> bool:
+    return isinstance(node, ast.AsyncFunctionDef) and node.name == name
 
 
 def _find_simple_owned_patch(
@@ -902,22 +888,40 @@ def _with_silent_exception_handler(block: list[str], indent: str, newline: str):
 
 def _render_hook_block(indent: str, newline: str, strategy: str = "legacy_gateway_run"):
     inner_indent = _child_indent(indent)
+    deeper_indent = _child_indent(inner_indent)
     block = [
         f"{indent}{PATCH_BEGIN}{newline}",
-        f"{indent}try:{newline}",
-        (
-            f"{inner_indent}from hermes_feishu_card.hook_runtime "
-            f"import emit_from_hermes_locals as _hfc_emit{newline}"
-        ),
-        f"{inner_indent}_hfc_emit(locals()){newline}",
-        *_render_hook_exception_handler(indent, newline),
-        f"{indent}{PATCH_END}{newline}",
     ]
     if strategy == "gateway_run_013_plus":
-        block.insert(
-            1,
-            f"{indent}# HERMES_FEISHU_CARD_STRATEGY gateway_run_013_plus{newline}",
+        block.extend(
+            [
+                f"{indent}# HERMES_FEISHU_CARD_STRATEGY gateway_run_013_plus{newline}",
+                f"{indent}try:{newline}",
+                (
+                    f"{inner_indent}from hermes_feishu_card.hook_runtime "
+                    f"import emit_from_hermes_locals as _hfc_emit{newline}"
+                ),
+                f"{inner_indent}_hfc_started_message_id = None{newline}",
+                f"{inner_indent}try:{newline}",
+                f"{deeper_indent}_hfc_started_message_id = self._reply_anchor_for_event(event){newline}",
+                f"{inner_indent}except Exception:{newline}",
+                f"{deeper_indent}_hfc_started_message_id = getattr(event, \"message_id\", None){newline}",
+                f"{inner_indent}_hfc_emit({{**locals(), \"message_id\": _hfc_started_message_id}}){newline}",
+            ]
         )
+    else:
+        block.extend(
+            [
+                f"{indent}try:{newline}",
+                (
+                    f"{inner_indent}from hermes_feishu_card.hook_runtime "
+                    f"import emit_from_hermes_locals as _hfc_emit{newline}"
+                ),
+                f"{inner_indent}_hfc_emit(locals()){newline}",
+            ]
+        )
+    block.extend(_render_hook_exception_handler(indent, newline))
+    block.append(f"{indent}{PATCH_END}{newline}")
     return block
 
 
